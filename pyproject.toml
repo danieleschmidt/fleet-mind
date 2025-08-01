@@ -1,0 +1,154 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fleet-mind"
+dynamic = ["version"]
+description = "Realtime Swarm LLM - ROS 2 & WebRTC stack for coordinating 100+ drones with <100ms latency"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Daniel Schmidt", email = "daniel@terragon.ai" },
+]
+keywords = ["ros2", "webrtc", "llm", "drone", "swarm", "robotics", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Distributed Computing",
+]
+dependencies = [
+    "rclpy>=3.3.0",
+    "aiortc>=1.5.0",
+    "openai>=1.0.0",
+    "numpy>=1.21.0",
+    "scipy>=1.7.0",
+    "opencv-python>=4.5.0",
+    "asyncio-mqtt>=0.11.0",
+    "aiohttp>=3.8.0",
+    "pydantic>=2.0.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+ros2 = [
+    "rclpy>=3.3.0",
+    "geometry-msgs>=4.2.0",
+    "sensor-msgs>=4.2.0",
+    "nav-msgs>=4.2.0",
+    "tf2-ros>=0.25.0",
+]
+simulation = [
+    "gazebo-msgs>=3.7.0",
+    "px4-msgs>=1.14.0",
+    "mavros-msgs>=1.12.0",
+    "airsim>=1.8.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+    "sphinx>=6.0.0",
+    "sphinx-rtd-theme>=1.2.0",
+]
+full = [
+    "fleet-mind[ros2,simulation,dev]",
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+    "tensorrt>=8.6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/terragon-labs/fleet-mind"
+Documentation = "https://fleet-mind.readthedocs.io"
+Repository = "https://github.com/terragon-labs/fleet-mind"
+Issues = "https://github.com/terragon-labs/fleet-mind/issues"
+
+[project.scripts]
+fleet-mind = "fleet_mind.cli:main"
+
+[tool.hatch.version]
+path = "fleet_mind/__init__.py"
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["fleet_mind"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --cov=fleet_mind --cov-report=term-missing"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.coverage.run]
+source = ["fleet_mind"]
+omit = [
+    "*/tests/*",
+    "*/conftest.py",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\bProtocol\):",
+    "@(abc\.)?abstractmethod",
+]
