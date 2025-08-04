@@ -978,9 +978,9 @@ pytest tests/integration/ --sim=gazebo
 ```bibtex
 @software{fleet_mind,
   title={Fleet-Mind: Real-time LLM Coordination for Drone Swarms},
-  author={Your Name},
+  author={Daniel Schmidt},
   year={2025},
-  url={https://github.com/yourusername/fleet-mind}
+  url={https://github.com/danieleschmidt/fleet-mind}
 }
 
 @article{cmu_swarm_survey_2025,
