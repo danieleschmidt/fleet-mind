@@ -1,0 +1,60 @@
+# Core dependencies for Fleet-Mind
+# Note: This is a comprehensive list for production use
+# For development/testing, many of these can be optional
+
+# LLM Integration
+openai>=1.0.0
+
+# Communication and Networking
+aiortc>=1.5.0
+aiohttp>=3.8.0
+asyncio-mqtt>=0.11.0
+
+# Data Processing and ML
+numpy>=1.21.0
+scipy>=1.7.0
+torch>=2.0.0
+transformers>=4.30.0
+
+# Computer Vision (optional)
+opencv-python>=4.5.0
+
+# Data Validation and Serialization
+pydantic>=2.0.0
+
+# CLI and UI
+typer>=0.9.0
+rich>=13.0.0
+
+# ROS 2 Integration (optional)
+# rclpy>=3.3.0
+# geometry-msgs>=4.2.0
+# sensor-msgs>=4.2.0
+# nav-msgs>=4.2.0
+
+# Caching
+redis>=4.0.0
+aioredis>=2.0.0
+
+# Security
+cryptography>=3.4.0
+PyJWT>=2.4.0
+
+# Monitoring and Logging
+psutil>=5.8.0
+structlog>=22.0.0
+
+# Testing (development)
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+
+# Code Quality (development)
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# Documentation (development)
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0

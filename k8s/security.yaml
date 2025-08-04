@@ -1,0 +1,181 @@
+# ServiceAccount for Fleet-Mind
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fleet-mind-service-account
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+automountServiceAccountToken: true
+
+---
+# ClusterRole for Fleet-Mind operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fleet-mind-role
+  labels:
+    app: fleet-mind
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fleet-mind-role-binding
+  labels:
+    app: fleet-mind
+subjects:
+- kind: ServiceAccount
+  name: fleet-mind-service-account
+  namespace: fleet-mind
+roleRef:
+  kind: ClusterRole
+  name: fleet-mind-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Secret for TLS certificates
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fleet-mind-tls
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+type: kubernetes.io/tls
+data:
+  # Generate with: openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=fleet-mind.yourdomain.com"
+  tls.crt: ""  # Base64 encoded certificate
+  tls.key: ""  # Base64 encoded private key
+
+---
+# Secret for application secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fleet-mind-secrets
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+type: Opaque
+data:
+  # OpenAI API key (base64 encoded)
+  openai-api-key: ""
+  # JWT secret for authentication
+  jwt-secret: "ZmxlZXQtbWluZC1qd3Qtc2VjcmV0LWNoYW5nZS1pbi1wcm9kdWN0aW9u"
+  # Redis password
+  redis-password: "cmVkaXMtcGFzc3dvcmQtY2hhbmdlLWluLXByb2R1Y3Rpb24="
+  # Database credentials (if using external DB)
+  db-username: "ZmxlZXRtaW5k"
+  db-password: "ZGItcGFzc3dvcmQtY2hhbmdlLWluLXByb2R1Y3Rpb24="
+
+---
+# NetworkPolicy for Pod security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fleet-mind-network-policy
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+spec:
+  podSelector:
+    matchLabels:
+      app: fleet-mind-coordinator
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow ingress from nginx ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+  # Allow ingress from monitoring namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8082  # Metrics endpoint
+  # Allow inter-pod communication within namespace
+  - from:
+    - podSelector:
+        matchLabels:
+          app: fleet-mind-coordinator
+    - podSelector:
+        matchLabels:
+          app: fleet-mind-redis
+  egress:
+  # Allow egress to DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow egress to Redis
+  - to:
+    - podSelector:
+        matchLabels:
+          app: fleet-mind-redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Allow egress to external APIs (OpenAI, etc.)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+
+---
+# NetworkPolicy for Redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-network-policy
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-redis
+spec:
+  podSelector:
+    matchLabels:
+      app: fleet-mind-redis
+  policyTypes:
+  - Ingress
+  ingress:
+  # Only allow connections from Fleet-Mind coordinator
+  - from:
+    - podSelector:
+        matchLabels:
+          app: fleet-mind-coordinator
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Allow from monitoring for metrics
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 6379

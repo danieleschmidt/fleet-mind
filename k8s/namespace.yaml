@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fleet-mind
+  labels:
+    name: fleet-mind
+    app.kubernetes.io/name: fleet-mind
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: kubectl

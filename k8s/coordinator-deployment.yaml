@@ -1,0 +1,171 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-mind-coordinator
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-coordinator
+    component: coordinator
+spec:
+  replicas: 3  # High availability
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: fleet-mind-coordinator
+  template:
+    metadata:
+      labels:
+        app: fleet-mind-coordinator
+        component: coordinator
+    spec:
+      serviceAccountName: fleet-mind-coordinator
+      containers:
+      - name: coordinator
+        image: terragon/fleet-mind:0.1.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: webrtc
+        - containerPort: 8081
+          name: http-api
+        - containerPort: 8082
+          name: metrics
+        env:
+        - name: FLEET_MIND_ENV
+          value: "production"
+        - name: REDIS_URL
+          value: "redis://fleet-mind-redis:6379/0"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: fleet-mind-secrets
+              key: openai-api-key
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8081
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: data
+          mountPath: /app/data
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: config
+        configMap:
+          name: fleet-mind-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: fleet-mind-data
+      - name: logs
+        emptyDir: {}
+      nodeSelector:
+        kubernetes.io/os: linux
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - fleet-mind-coordinator
+              topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleet-mind-coordinator
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-coordinator
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: webrtc
+  - port: 8081
+    targetPort: 8081
+    name: http-api
+  - port: 8082
+    targetPort: 8082
+    name: metrics
+  selector:
+    app: fleet-mind-coordinator
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fleet-mind-coordinator
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-coordinator
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fleet-mind-coordinator
+  namespace: fleet-mind
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fleet-mind-coordinator
+  namespace: fleet-mind
+subjects:
+- kind: ServiceAccount
+  name: fleet-mind-coordinator
+  namespace: fleet-mind
+roleRef:
+  kind: Role
+  name: fleet-mind-coordinator
+  apiGroup: rbac.authorization.k8s.io

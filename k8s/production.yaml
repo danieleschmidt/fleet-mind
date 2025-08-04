@@ -1,0 +1,294 @@
+# Production configuration for Fleet-Mind
+# Storage Classes for persistent volumes
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+  labels:
+    app: fleet-mind
+provisioner: kubernetes.io/gce-pd
+parameters:
+  type: pd-ssd
+  replication-type: regional-pd
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+
+---
+# Backup configuration for Redis data
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-config
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+data:
+  backup-script.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Redis backup
+    REDIS_HOST="fleet-mind-redis"
+    REDIS_PORT="6379"
+    BACKUP_DIR="/backups"
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    
+    mkdir -p $BACKUP_DIR
+    
+    # Create Redis dump
+    redis-cli -h $REDIS_HOST -p $REDIS_PORT --rdb $BACKUP_DIR/redis_backup_$TIMESTAMP.rdb
+    
+    # Compress backup
+    gzip $BACKUP_DIR/redis_backup_$TIMESTAMP.rdb
+    
+    # Upload to cloud storage (configure for your provider)
+    # gsutil cp $BACKUP_DIR/redis_backup_$TIMESTAMP.rdb.gz gs://your-backup-bucket/redis/
+    # aws s3 cp $BACKUP_DIR/redis_backup_$TIMESTAMP.rdb.gz s3://your-backup-bucket/redis/
+    
+    # Cleanup old backups (keep last 7 days)
+    find $BACKUP_DIR -name "redis_backup_*.rdb.gz" -mtime +7 -delete
+    
+    echo "Backup completed: redis_backup_$TIMESTAMP.rdb.gz"
+
+---
+# CronJob for automated backups
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fleet-mind-backup
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: fleet-mind-service-account
+          containers:
+          - name: backup
+            image: redis:7-alpine
+            command: ["sh", "/scripts/backup-script.sh"]
+            volumeMounts:
+            - name: backup-script
+              mountPath: /scripts
+            - name: backup-storage
+              mountPath: /backups
+            env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-mind-secrets
+                  key: redis-password
+          volumes:
+          - name: backup-script
+            configMap:
+              name: backup-config
+              defaultMode: 0755
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-storage
+          restartPolicy: OnFailure
+
+---
+# PVC for backup storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-storage
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: fast-ssd
+
+---
+# Pod Security Policy
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: fleet-mind-psp
+  labels:
+    app: fleet-mind
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+
+---
+# Resource Quotas for the namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: fleet-mind-quota
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    persistentvolumeclaims: "10"
+    pods: "50"
+    services: "10"
+    secrets: "20"
+    configmaps: "20"
+
+---
+# Limit Ranges for resource control
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: fleet-mind-limits
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+spec:
+  limits:
+  - type: Container
+    default:
+      cpu: 500m
+      memory: 1Gi
+    defaultRequest:
+      cpu: 100m
+      memory: 256Mi
+    max:
+      cpu: 2
+      memory: 4Gi
+    min:
+      cpu: 50m
+      memory: 128Mi
+  - type: PersistentVolumeClaim
+    max:
+      storage: 100Gi
+    min:
+      storage: 1Gi
+
+---
+# Service Monitor for Prometheus integration
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fleet-mind-monitoring
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: fleet-mind-coordinator
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+    honorLabels: true
+  - port: metrics
+    interval: 30s
+    path: /health
+    honorLabels: true
+  namespaceSelector:
+    matchNames:
+    - fleet-mind
+
+---
+# Alert Manager rules
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fleet-mind-alerts
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+    prometheus: kube-prometheus
+spec:
+  groups:
+  - name: fleet-mind.rules
+    rules:
+    # High CPU usage
+    - alert: FleetMindHighCPU
+      expr: rate(container_cpu_usage_seconds_total{pod=~"fleet-mind-coordinator-.*"}[5m]) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        component: coordinator
+      annotations:
+        summary: "Fleet-Mind coordinator high CPU usage"
+        description: "Pod {{ $labels.pod }} CPU usage is above 80% for more than 5 minutes"
+    
+    # High memory usage
+    - alert: FleetMindHighMemory
+      expr: container_memory_usage_bytes{pod=~"fleet-mind-coordinator-.*"} / container_spec_memory_limit_bytes > 0.9
+      for: 5m
+      labels:
+        severity: critical
+        component: coordinator
+      annotations:
+        summary: "Fleet-Mind coordinator high memory usage"
+        description: "Pod {{ $labels.pod }} memory usage is above 90% for more than 5 minutes"
+    
+    # Pod crash loop
+    - alert: FleetMindPodCrashLoop
+      expr: increase(kube_pod_container_status_restarts_total{pod=~"fleet-mind-coordinator-.*"}[1h]) > 3
+      for: 5m
+      labels:
+        severity: critical
+        component: coordinator
+      annotations:
+        summary: "Fleet-Mind coordinator pod crash loop"
+        description: "Pod {{ $labels.pod }} has restarted more than 3 times in the last hour"
+    
+    # Service down
+    - alert: FleetMindServiceDown
+      expr: up{job="fleet-mind-coordinator"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: coordinator
+      annotations:
+        summary: "Fleet-Mind coordinator service is down"
+        description: "Fleet-Mind coordinator service is not responding"
+    
+    # Redis connection issues
+    - alert: FleetMindRedisDown
+      expr: up{job="fleet-mind-redis"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: redis
+      annotations:
+        summary: "Fleet-Mind Redis is down"
+        description: "Redis service is not responding"
+    
+    # High error rate
+    - alert: FleetMindHighErrorRate
+      expr: rate(fleet_mind_errors_total[5m]) > 0.1
+      for: 3m
+      labels:
+        severity: warning
+        component: coordinator
+      annotations:
+        summary: "Fleet-Mind high error rate"
+        description: "Error rate is above 10% for more than 3 minutes"
