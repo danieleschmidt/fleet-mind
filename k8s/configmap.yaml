@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-mind-config
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+data:
+  coordinator.yaml: |
+    # Fleet-Mind Coordinator Configuration
+    coordinator:
+      llm_model: "gpt-4o"
+      latent_dim: 512
+      max_drones: 100
+      update_rate: 10.0
+      safety_constraints:
+        max_altitude: 120.0
+        safety_distance: 5.0
+        battery_warning_threshold: 20.0
+        battery_critical_threshold: 10.0
+    
+    communication:
+      protocol: "webrtc"
+      turn_servers:
+        - urls: "turn:fleet-mind-coturn:3478"
+          username: "fleetmind"
+      stun_servers:
+        - "stun:stun.l.google.com:19302"
+      
+    cache:
+      enable_l1: true
+      enable_l2: true
+      l1_config:
+        max_size: 10000
+        max_memory_mb: 500
+        strategy: "lru"
+      l2_config:
+        redis_url: "redis://fleet-mind-redis:6379/0"
+    
+    monitoring:
+      enable_metrics: true
+      metrics_port: 8082
+      collection_interval: 5.0
+      
+    security:
+      enable_encryption: true
+      jwt_expiry: 3600
+      rate_limiting: true
+      threat_detection: true
+    
+    logging:
+      level: "INFO"
+      format: "json"
+      enable_file: true
+      enable_console: true
+
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    
+    scrape_configs:
+    - job_name: 'fleet-mind-coordinator'
+      static_configs:
+      - targets: ['fleet-mind-coordinator:8082']
+      metrics_path: '/metrics'
+      scrape_interval: 5s
+    
+    - job_name: 'redis'
+      static_configs:
+      - targets: ['fleet-mind-redis:6379']
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fleet-mind-secrets
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind
+type: Opaque
+data:
+  # Base64 encoded secrets - replace with actual values
+  openai-api-key: "cGxhY2Vob2xkZXI="  # placeholder
+  jwt-secret: "c3VwZXJfc2VjcmV0X2p3dF9rZXk="  # super_secret_jwt_key
+  turn-password: "c2VjdXJlX3R1cm5fcGFzc3dvcmQ="  # secure_turn_password

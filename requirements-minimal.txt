@@ -1,0 +1,13 @@
+# Minimal dependencies for basic Fleet-Mind functionality
+# These are the core packages needed for testing and basic operation
+
+# Basic Python packages (usually available)
+numpy
+typing-extensions
+
+# For testing
+pytest
+pytest-asyncio
+
+# Optional dependencies will be imported with try/except blocks
+# Full functionality requires packages from requirements.txt
