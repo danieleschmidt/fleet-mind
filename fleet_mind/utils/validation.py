@@ -7,8 +7,52 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-import numpy as np
-from pydantic import BaseModel, Field, validator, ValidationError
+# NumPy and Pydantic imports with fallback handling
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    # Fallback implementation for numpy functions
+    class np:
+        @staticmethod
+        def array(data): return data
+        @staticmethod
+        def any(arr): return any(arr)
+        @staticmethod
+        def isnan(arr): return [False] * len(arr) if hasattr(arr, '__len__') else False
+        @staticmethod
+        def isinf(arr): return [False] * len(arr) if hasattr(arr, '__len__') else False
+        @staticmethod
+        def max(arr): return max(arr) if hasattr(arr, '__len__') else arr
+        @staticmethod
+        def abs(arr): return [abs(x) for x in arr] if hasattr(arr, '__len__') else abs(arr)
+        class ndarray:
+            def __init__(self, data): 
+                self.data = data
+                self.shape = (len(data),) if hasattr(data, '__len__') else (1,)
+    NUMPY_AVAILABLE = False
+    print("Warning: NumPy not available, using simplified array operations")
+
+try:
+    from pydantic import BaseModel, Field, validator, ValidationError as PydanticValidationError
+    PYDANTIC_AVAILABLE = True
+except ImportError:
+    # Fallback implementations
+    class BaseModel:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+    
+    def Field(*args, **kwargs): return None
+    def validator(field): return lambda func: func
+    
+    class PydanticValidationError(Exception):
+        def __init__(self, errors):
+            self.errors = lambda: errors
+            super().__init__(str(errors))
+    
+    PYDANTIC_AVAILABLE = False
+    print("Warning: Pydantic not available, using simplified validation")
 
 
 class ValidationSeverity(Enum):

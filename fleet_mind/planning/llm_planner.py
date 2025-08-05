@@ -7,8 +7,31 @@ from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 from enum import Enum
 
-import openai
-from pydantic import BaseModel, Field
+# OpenAI and Pydantic imports with fallback handling
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    class openai:
+        api_key = None
+        class ChatCompletion:
+            @staticmethod
+            async def acreate(*args, **kwargs):
+                raise Exception("OpenAI not available")
+    OPENAI_AVAILABLE = False
+    print("Warning: OpenAI not available, using mock LLM responses")
+
+try:
+    from pydantic import BaseModel, Field
+    PYDANTIC_AVAILABLE = True
+except ImportError:
+    class BaseModel:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+    def Field(*args, **kwargs): return None
+    PYDANTIC_AVAILABLE = False
+    print("Warning: Pydantic not available, using simplified data models")
 
 
 class PlanningLevel(Enum):

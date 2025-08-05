@@ -10,7 +10,50 @@ from typing import Dict, Any, Optional, Union
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 
-import structlog
+# Structlog import with fallback handling
+try:
+    import structlog
+    STRUCTLOG_AVAILABLE = True
+except ImportError:
+    # Fallback implementation for when structlog is not available
+    class structlog:
+        @staticmethod
+        def get_logger(name):
+            return logging.getLogger(name)
+        
+        @staticmethod
+        def configure(*args, **kwargs):
+            pass
+        
+        class stdlib:
+            @staticmethod
+            def filter_by_level(*args, **kwargs): pass
+            @staticmethod
+            def add_logger_name(*args, **kwargs): pass
+            @staticmethod
+            def add_log_level(*args, **kwargs): pass
+            class PositionalArgumentsFormatter: pass
+            class LoggerFactory: pass
+            class BoundLogger: pass
+        
+        class processors:
+            @staticmethod
+            def TimeStamper(*args, **kwargs): pass
+            @staticmethod
+            def StackInfoRenderer(*args, **kwargs): pass
+            @staticmethod
+            def format_exc_info(*args, **kwargs): pass
+            @staticmethod
+            def UnicodeDecoder(*args, **kwargs): pass
+            @staticmethod
+            def JSONRenderer(*args, **kwargs): pass
+        
+        class dev:
+            @staticmethod
+            def ConsoleRenderer(*args, **kwargs): pass
+    
+    STRUCTLOG_AVAILABLE = False
+    print("Warning: structlog not available, using standard logging")
 
 
 @dataclass

@@ -6,14 +6,61 @@ import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-import typer
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.live import Live
-from rich.layout import Layout
-from rich.text import Text
+# UI library imports with fallback handling
+try:
+    import typer
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+    from rich.live import Live
+    from rich.layout import Layout
+    from rich.text import Text
+    RICH_AVAILABLE = True
+except ImportError:
+    # Fallback for when rich/typer are not available
+    class Console:
+        def print(self, *args, **kwargs): print(*args)
+    class Table:
+        def __init__(self, *args, **kwargs): pass
+        def add_column(self, *args, **kwargs): pass
+        def add_row(self, *args, **kwargs): pass
+    class Panel:
+        def __init__(self, *args, **kwargs): pass
+    class Progress:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def add_task(self, *args, **kwargs): return "task"
+        def update(self, *args, **kwargs): pass
+    class Live:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    class Layout: pass
+    class Text: pass
+    class SpinnerColumn: pass
+    class TextColumn: pass
+    
+    try:
+        import typer
+        TYPER_AVAILABLE = True
+    except ImportError:
+        class typer:
+            class Typer:
+                def __init__(self, *args, **kwargs): pass
+                def command(self): return lambda f: f
+            @staticmethod
+            def Option(*args, **kwargs): return None
+            @staticmethod
+            def Argument(*args, **kwargs): return None
+            @staticmethod
+            def confirm(msg): return input(f"{msg} (y/N): ").lower().startswith('y')
+            class Exit(Exception): pass
+        TYPER_AVAILABLE = False
+    
+    RICH_AVAILABLE = False
+    print("Warning: Rich/Typer not available, using basic CLI interface")
 
 from .coordination.swarm_coordinator import SwarmCoordinator, MissionConstraints
 from .fleet.drone_fleet import DroneFleet, DroneCapability
