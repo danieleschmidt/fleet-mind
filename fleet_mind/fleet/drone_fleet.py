@@ -6,7 +6,25 @@ from typing import Dict, List, Optional, Set, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
-import numpy as np
+# NumPy import with fallback handling
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    # Fallback implementation for numpy functions
+    class np:
+        @staticmethod
+        def array(data): return data
+        class random:
+            @staticmethod
+            def uniform(low, high, size=None): return low + (high-low) * 0.5
+            @staticmethod
+            def randn(*shape): return 0.5
+        class linalg:
+            @staticmethod
+            def norm(x): return sum(abs(i) for i in x) if hasattr(x, '__iter__') else abs(x)
+    NUMPY_AVAILABLE = False
+    print("Warning: NumPy not available in drone_fleet, using fallback")
 
 
 class DroneStatus(Enum):

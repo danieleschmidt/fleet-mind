@@ -23,6 +23,9 @@ from ..communication.latent_encoder import LatentEncoder
 from ..communication.webrtc_streamer import WebRTCStreamer
 from ..planning.llm_planner import LLMPlanner
 from ..fleet.drone_fleet import DroneFleet
+from ..utils.performance import cached, async_cached, performance_monitor, get_performance_summary
+from ..utils.concurrency import execute_concurrent, get_concurrency_stats
+from ..utils.auto_scaling import update_scaling_metric, get_autoscaling_stats
 
 
 class MissionStatus(Enum):
@@ -50,8 +53,10 @@ class SwarmState:
     """Current state of the drone swarm."""
     num_active_drones: int = 0
     num_total_drones: int = 0
+    num_failed_drones: int = 0
     average_battery: float = 100.0
     mission_progress: float = 0.0
+    safety_status: str = "safe"
     last_update: float = field(default_factory=time.time)
 
 
@@ -103,6 +108,7 @@ class SwarmCoordinator:
         self.current_mission: Optional[str] = None
         self.swarm_state = SwarmState()
         self.context_history: List[Dict[str, Any]] = []
+        self.start_time = time.time()  # Track initialization time
         
         # Event callbacks
         self._callbacks: Dict[str, List[Callable]] = {
@@ -132,6 +138,8 @@ class SwarmCoordinator:
         
         print(f"Connected to fleet of {len(fleet.drone_ids)} drones")
 
+    @async_cached(ttl=300, max_size=100)  # Cache plans for 5 minutes
+    @performance_monitor
     async def generate_plan(
         self,
         mission: str,
@@ -196,6 +204,7 @@ class SwarmCoordinator:
         
         return complete_plan
 
+    @performance_monitor
     async def execute_mission(
         self,
         latent_plan: Dict[str, Any],
@@ -392,4 +401,75 @@ class SwarmCoordinator:
             
         recent = self.context_history[-3:]  # Last 3 entries
         latencies = [entry.get('latency_ms', 0) for entry in recent]
-        return sum(latencies) / len(latencies) if latencies else 0.0
+        return sum(latencies) / len(latencies)
+    
+    @performance_monitor
+    def get_comprehensive_stats(self) -> Dict[str, Any]:
+        """Get comprehensive performance and operational statistics.
+        
+        Returns:
+            Complete system statistics including performance, scaling, and operational metrics
+        """
+        # Update scaling metrics
+        if self.fleet:
+            fleet_status = self.fleet.get_fleet_status()
+            update_scaling_metric('cpu', fleet_status.get('average_health', 0.5) * 100)
+            update_scaling_metric('queue', len(self.context_history))
+            
+            # Calculate response time from recent missions
+            avg_response_time = self._get_recent_latency()
+            update_scaling_metric('response_time', avg_response_time)
+        
+        # Compile comprehensive statistics
+        return {
+            'swarm_status': {
+                'mission_status': self.mission_status.value,
+                'current_mission': self.current_mission,
+                'uptime_seconds': time.time() - self.start_time,
+                'recent_latency_ms': self._get_recent_latency(),
+                'active_drones': self.swarm_state.num_active_drones,
+                'failed_drones': self.swarm_state.num_failed_drones,
+                'mission_progress': self.swarm_state.mission_progress,
+                'safety_status': self.swarm_state.safety_status,
+            },
+            'fleet_stats': self.fleet.get_fleet_status() if self.fleet else {},
+            'performance_stats': get_performance_summary(),
+            'concurrency_stats': get_concurrency_stats(),
+            'autoscaling_stats': get_autoscaling_stats(),
+            'cache_stats': {
+                'generate_plan_cache': getattr(self.generate_plan, 'cache_stats', lambda: {})(),
+            },
+            'system_health': {
+                'memory_usage_mb': self._get_memory_usage(),
+                'active_tasks': self._get_active_tasks_count(),
+                'error_rate': self._calculate_error_rate(),
+            },
+            'timestamp': time.time(),
+        }
+    
+    def _get_memory_usage(self) -> float:
+        """Get current memory usage in MB."""
+        try:
+            import psutil
+            import os
+            process = psutil.Process(os.getpid())
+            return process.memory_info().rss / 1024 / 1024  # MB
+        except ImportError:
+            return 0.0
+    
+    def _get_active_tasks_count(self) -> int:
+        """Get count of active async tasks."""
+        try:
+            return len([t for t in asyncio.all_tasks() if not t.done()])
+        except RuntimeError:
+            # No event loop running
+            return 0
+    
+    def _calculate_error_rate(self) -> float:
+        """Calculate recent error rate based on context history."""
+        if not self.context_history:
+            return 0.0
+        
+        recent = self.context_history[-20:]  # Last 20 operations
+        errors = sum(1 for entry in recent if entry.get('error', False))
+        return errors / len(recent) if recent else 0.0 if latencies else 0.0
