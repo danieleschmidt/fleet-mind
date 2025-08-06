@@ -23,6 +23,8 @@ from ..communication.latent_encoder import LatentEncoder
 from ..communication.webrtc_streamer import WebRTCStreamer
 from ..planning.llm_planner import LLMPlanner
 from ..fleet.drone_fleet import DroneFleet
+from ..security import SecurityManager, SecurityLevel
+from ..monitoring import HealthMonitor, HealthStatus, AlertSeverity
 from ..utils.performance import cached, async_cached, performance_monitor, get_performance_summary
 from ..utils.concurrency import execute_concurrent, get_concurrency_stats
 from ..utils.auto_scaling import update_scaling_metric, get_autoscaling_stats
@@ -75,6 +77,8 @@ class SwarmCoordinator:
         max_drones: int = 100,
         update_rate: float = 10.0,
         safety_constraints: Optional[MissionConstraints] = None,
+        security_level: SecurityLevel = SecurityLevel.HIGH,
+        enable_health_monitoring: bool = True,
     ):
         """Initialize SwarmCoordinator.
         
@@ -85,6 +89,8 @@ class SwarmCoordinator:
             max_drones: Maximum fleet size
             update_rate: Planning frequency in Hz
             safety_constraints: Mission safety parameters
+            security_level: Security level for operations
+            enable_health_monitoring: Enable health monitoring
         """
         self.llm_model = llm_model
         self.latent_dim = latent_dim
@@ -92,6 +98,8 @@ class SwarmCoordinator:
         self.max_drones = max_drones
         self.update_rate = update_rate
         self.safety_constraints = safety_constraints or MissionConstraints()
+        self.security_level = security_level
+        self.enable_health_monitoring = enable_health_monitoring
         
         # Core components
         self.llm_planner = LLMPlanner(model=llm_model)
@@ -101,6 +109,20 @@ class SwarmCoordinator:
             compression_type="learned_vqvae"
         )
         self.webrtc_streamer = WebRTCStreamer()
+        
+        # Security and monitoring
+        self.security_manager = SecurityManager(
+            security_level=security_level,
+            key_rotation_interval=3600.0,  # 1 hour
+            enable_threat_detection=True
+        )
+        
+        self.health_monitor = HealthMonitor(
+            check_interval=30.0,
+            alert_cooldown=300.0,
+            enable_system_monitoring=True,
+            enable_network_monitoring=True
+        ) if enable_health_monitoring else None
         
         # State management
         self.fleet: Optional[DroneFleet] = None
@@ -116,11 +138,18 @@ class SwarmCoordinator:
             'mission_complete': [],
             'drone_failure': [],
             'emergency_stop': [],
+            'security_alert': [],
+            'health_alert': [],
         }
+        
+        # Security event tracking
+        self.security_events: List[Dict[str, Any]] = []
+        self.threat_level = "low"
         
         # Async task management
         self._planning_task: Optional[asyncio.Task] = None
         self._monitoring_task: Optional[asyncio.Task] = None
+        self._security_task: Optional[asyncio.Task] = None
         self._running = False
 
     async def connect_fleet(self, fleet: DroneFleet) -> None:
@@ -132,11 +161,32 @@ class SwarmCoordinator:
         self.fleet = fleet
         await self.webrtc_streamer.initialize(fleet.drone_ids)
         
+        # Generate security credentials for all drones
+        for drone_id in fleet.drone_ids:
+            credentials = self.security_manager.generate_drone_credentials(
+                drone_id, 
+                permissions={"basic_flight", "telemetry", "emergency_response", "formation_flight"}
+            )
+            print(f"Generated security credentials for {drone_id}")
+        
+        # Register components for health monitoring
+        if self.health_monitor:
+            self.health_monitor.register_component("coordinator")
+            self.health_monitor.register_component("webrtc_streamer") 
+            self.health_monitor.register_component("llm_planner")
+            self.health_monitor.register_component("latent_encoder")
+            
+            # Start health monitoring
+            await self.health_monitor.start_monitoring()
+            
+            # Add health alert callback
+            self.health_monitor.add_alert_callback(self._on_health_alert)
+        
         # Update swarm state
         self.swarm_state.num_total_drones = len(fleet.drone_ids)
         self.swarm_state.num_active_drones = len(fleet.get_active_drones())
         
-        print(f"Connected to fleet of {len(fleet.drone_ids)} drones")
+        print(f"Connected to fleet of {len(fleet.drone_ids)} drones with {self.security_level.value} security level")
 
     @async_cached(ttl=300, max_size=100)  # Cache plans for 5 minutes
     @performance_monitor
@@ -180,8 +230,17 @@ class SwarmCoordinator:
         plan = await self.llm_planner.generate_plan(planning_context)
         planning_latency = (time.time() - start_time) * 1000  # ms
         
-        # Encode to latent representation
-        latent_plan = self.latent_encoder.encode(plan['actions'])
+        # Encode to latent representation - handle both old and new plan formats
+        actions_to_encode = []
+        if 'actions' in plan:
+            actions_to_encode = plan['actions']
+        elif 'action_sequences' in plan and len(plan['action_sequences']) > 0:
+            # Extract actions from action sequences
+            for seq in plan['action_sequences']:
+                if 'actions' in seq:
+                    actions_to_encode.extend(seq['actions'])
+        
+        latent_plan = self.latent_encoder.encode(actions_to_encode)
         
         # Package complete plan
         complete_plan = {
@@ -472,4 +531,375 @@ class SwarmCoordinator:
         
         recent = self.context_history[-20:]  # Last 20 operations
         errors = sum(1 for entry in recent if entry.get('error', False))
-        return errors / len(recent) if recent else 0.0 if latencies else 0.0
+        return errors / len(recent) if recent else 0.0
+        
+    async def optimize_fleet_performance(self) -> Dict[str, Any]:
+        """Optimize fleet performance based on current metrics.
+        
+        Returns:
+            Dictionary of optimization results and recommendations
+        """
+        if not self.fleet:
+            return {"error": "No fleet connected"}
+        
+        # Analyze current performance
+        performance_stats = self.get_comprehensive_stats()
+        fleet_health = await self.fleet.get_health_status()
+        
+        optimizations = {
+            'recommendations': [],
+            'actions_taken': [],
+            'performance_gains': {},
+        }
+        
+        # Check for performance issues
+        avg_latency = self._get_recent_latency()
+        if avg_latency > 80:  # ms
+            optimizations['recommendations'].append("Consider reducing LLM context size")
+            if avg_latency > 120:
+                # Reduce context automatically
+                self.context_history = self.context_history[-3:]
+                optimizations['actions_taken'].append("Reduced context history for latency")
+        
+        # Check drone health distribution
+        critical_drones = len(fleet_health.get('critical', []))
+        if critical_drones > len(self.fleet.drone_ids) * 0.1:  # >10% critical
+            optimizations['recommendations'].append("Schedule fleet maintenance")
+            
+        # Auto-scaling recommendations
+        active_drones = self.swarm_state.num_active_drones
+        if active_drones < 5 and len(self.fleet.drone_ids) > 10:
+            optimizations['recommendations'].append("Many drones offline - check connectivity")
+        
+        # Update autoscaling metrics
+        update_scaling_metric('fleet_health', self.fleet.get_average_health())
+        update_scaling_metric('active_ratio', active_drones / len(self.fleet.drone_ids))
+        
+        return optimizations
+    
+    async def adaptive_replan(self, context: Dict[str, Any]) -> bool:
+        """Perform adaptive replanning based on changing conditions.
+        
+        Args:
+            context: Context information about changed conditions
+            
+        Returns:
+            True if replanning was successful
+        """
+        if not self.current_mission:
+            return False
+        
+        try:
+            # Generate adaptive plan
+            adaptive_context = {
+                'mission': self.current_mission,
+                'adaptation_reason': context.get('reason', 'conditions_changed'),
+                'changed_conditions': context,
+                'previous_progress': self.swarm_state.mission_progress,
+            }
+            
+            new_plan = await self.generate_plan(
+                self.current_mission,
+                context=adaptive_context
+            )
+            
+            # Broadcast new plan
+            if new_plan:
+                await self.webrtc_streamer.broadcast(
+                    new_plan['latent_code'],
+                    priority='real_time',
+                    reliability='reliable'
+                )
+                
+                print(f"Adaptive replanning completed: {context.get('reason')}")
+                return True
+                
+        except Exception as e:
+            print(f"Adaptive replanning failed: {e}")
+            return False
+        
+        return False
+    
+    async def secure_broadcast(self, data: Any, priority: str = "real_time") -> Dict[str, bool]:
+        """Securely broadcast data to fleet with encryption and authentication.
+        
+        Args:
+            data: Data to broadcast
+            priority: Message priority level
+            
+        Returns:
+            Dictionary mapping drone_id to success status
+        """
+        if not self.fleet:
+            raise RuntimeError("No fleet connected")
+        
+        results = {}
+        
+        for drone_id in self.fleet.get_active_drones():
+            try:
+                # Encrypt message for specific drone
+                encrypted_data = self.security_manager.encrypt_message(
+                    data, 
+                    recipient=drone_id,
+                    security_level=self.security_level
+                )
+                
+                # Broadcast encrypted message
+                success = await self.webrtc_streamer.send_to_drone(
+                    drone_id,
+                    encrypted_data,
+                    priority=priority,
+                    reliability="reliable"
+                )
+                
+                results[drone_id] = success
+                
+                # Update health metrics
+                if self.health_monitor and success:
+                    self.health_monitor.update_metric("coordinator", "successful_broadcasts", 1.0)
+                
+            except Exception as e:
+                print(f"Secure broadcast failed for {drone_id}: {e}")
+                results[drone_id] = False
+                
+                # Log security event
+                self.security_events.append({
+                    "timestamp": time.time(),
+                    "event": "broadcast_failure",
+                    "drone_id": drone_id,
+                    "error": str(e)
+                })
+        
+        return results
+    
+    def _on_health_alert(self, alert) -> None:
+        """Handle health monitoring alerts."""
+        print(f"Health Alert [{alert.severity.value.upper()}]: {alert.message}")
+        
+        # Store alert in context
+        self.context_history.append({
+            "timestamp": time.time(),
+            "type": "health_alert",
+            "severity": alert.severity.value,
+            "component": alert.component,
+            "metric": alert.metric_name,
+            "message": alert.message
+        })
+        
+        # Take automatic action for critical alerts
+        if alert.severity == AlertSeverity.CRITICAL:
+            asyncio.create_task(self._handle_critical_health_alert(alert))
+        
+        # Trigger callbacks
+        asyncio.create_task(self._trigger_callbacks('health_alert', alert))
+    
+    async def _handle_critical_health_alert(self, alert) -> None:
+        """Handle critical health alerts automatically."""
+        if alert.component == "coordinator" and alert.metric_name == "memory_usage":
+            # Reduce context history to free memory
+            self.context_history = self.context_history[-10:]
+            print("Emergency: Reduced context history due to high memory usage")
+        
+        elif alert.component == "webrtc_streamer" and "latency" in alert.metric_name:
+            # Reduce update rate to improve performance
+            original_rate = self.update_rate
+            self.update_rate = max(1.0, self.update_rate * 0.5)
+            print(f"Emergency: Reduced update rate from {original_rate} to {self.update_rate} Hz")
+        
+        elif alert.metric_name == "error_rate":
+            # Switch to safe mode
+            self.threat_level = "high"
+            print("Emergency: Switched to high threat level due to high error rate")
+    
+    async def get_security_status(self) -> Dict[str, Any]:
+        """Get comprehensive security status.
+        
+        Returns:
+            Security status and threat information
+        """
+        security_status = self.security_manager.get_security_status()
+        
+        return {
+            "security_level": self.security_level.value,
+            "threat_level": self.threat_level,
+            "recent_security_events": len(self.security_events),
+            "security_manager_status": security_status,
+            "key_rotation_due": security_status["key_rotation"]["time_until_next"] < 300,  # Within 5 minutes
+            "blocked_sources": security_status.get("blocked_sources", 0),
+        }
+    
+    async def get_health_status(self) -> Dict[str, Any]:
+        """Get comprehensive health status.
+        
+        Returns:
+            Health status and monitoring information
+        """
+        if not self.health_monitor:
+            return {"health_monitoring": "disabled"}
+        
+        system_health = self.health_monitor.get_system_health()
+        active_alerts = self.health_monitor.get_alerts(active_only=True)
+        
+        return {
+            "overall_status": system_health["overall_status"],
+            "monitored_components": system_health["total_components"],
+            "active_alerts": len(active_alerts),
+            "critical_alerts": len([a for a in active_alerts if a.severity == AlertSeverity.CRITICAL]),
+            "uptime_seconds": system_health["uptime_seconds"],
+            "last_check": system_health["last_check"],
+            "alert_details": [
+                {
+                    "severity": alert.severity.value,
+                    "component": alert.component,
+                    "metric": alert.metric_name,
+                    "message": alert.message,
+                    "timestamp": alert.timestamp
+                }
+                for alert in active_alerts[:5]  # Show first 5 alerts
+            ]
+        }
+    
+    async def update_health_metrics(self) -> None:
+        """Update health metrics for coordinator components."""
+        if not self.health_monitor:
+            return
+        
+        try:
+            # Coordinator metrics
+            self.health_monitor.update_metric(
+                "coordinator", 
+                "missions_completed", 
+                self.swarm_state.mission_progress,
+                "%",
+                "Mission completion progress"
+            )
+            
+            self.health_monitor.update_metric(
+                "coordinator",
+                "active_drones_ratio",
+                self.swarm_state.num_active_drones / max(1, self.swarm_state.num_total_drones) * 100,
+                "%", 
+                "Percentage of active drones"
+            )
+            
+            # LLM planner metrics
+            planner_stats = self.llm_planner.get_performance_stats()
+            self.health_monitor.update_metric(
+                "llm_planner",
+                "average_planning_time",
+                planner_stats.get("average_planning_time_ms", 0),
+                "ms",
+                "Average LLM planning time"
+            )
+            
+            self.health_monitor.update_metric(
+                "llm_planner",
+                "success_rate",
+                planner_stats.get("success_rate", 1.0) * 100,
+                "%",
+                "LLM planning success rate"
+            )
+            
+            # WebRTC metrics
+            webrtc_status = self.webrtc_streamer.get_status()
+            self.health_monitor.update_metric(
+                "webrtc_streamer",
+                "active_connections",
+                webrtc_status.get("active_connections", 0),
+                "",
+                "Number of active WebRTC connections"
+            )
+            
+            self.health_monitor.update_metric(
+                "webrtc_streamer", 
+                "average_latency",
+                webrtc_status.get("average_latency_ms", 0),
+                "ms",
+                "Average WebRTC communication latency"
+            )
+            
+            # Latent encoder metrics
+            encoder_stats = self.latent_encoder.get_compression_stats()
+            self.health_monitor.update_metric(
+                "latent_encoder",
+                "compression_ratio",
+                encoder_stats.get("current_metrics", {}).get("compression_ratio", 0),
+                "",
+                "Current compression ratio"
+            )
+            
+            self.health_monitor.update_metric(
+                "latent_encoder",
+                "encoding_time", 
+                encoder_stats.get("average_encoding_time_ms", 0),
+                "ms",
+                "Average encoding time"
+            )
+            
+        except Exception as e:
+            print(f"Health metrics update error: {e}")
+    
+    async def perform_security_audit(self) -> Dict[str, Any]:
+        """Perform comprehensive security audit.
+        
+        Returns:
+            Security audit results and recommendations
+        """
+        audit_results = {
+            "timestamp": time.time(),
+            "security_level": self.security_level.value,
+            "findings": [],
+            "recommendations": [],
+            "risk_score": 0.0,
+        }
+        
+        try:
+            # Check key rotation status
+            security_status = await self.get_security_status()
+            if security_status.get("key_rotation_due"):
+                audit_results["findings"].append("Encryption key rotation due")
+                audit_results["recommendations"].append("Rotate encryption keys immediately")
+                audit_results["risk_score"] += 0.2
+            
+            # Check threat detection
+            if len(self.security_events) > 0:
+                recent_events = [e for e in self.security_events if time.time() - e["timestamp"] < 3600]
+                if len(recent_events) > 10:
+                    audit_results["findings"].append(f"High security event frequency: {len(recent_events)} events in last hour")
+                    audit_results["recommendations"].append("Investigate security event patterns")
+                    audit_results["risk_score"] += 0.3
+            
+            # Check drone authentication status
+            if self.fleet:
+                unauthenticated_drones = []
+                for drone_id in self.fleet.drone_ids:
+                    if drone_id not in self.security_manager.drone_credentials:
+                        unauthenticated_drones.append(drone_id)
+                
+                if unauthenticated_drones:
+                    audit_results["findings"].append(f"Unauthenticated drones: {unauthenticated_drones}")
+                    audit_results["recommendations"].append("Generate credentials for all drones")
+                    audit_results["risk_score"] += 0.4
+            
+            # Check communication security
+            if self.security_level == SecurityLevel.LOW:
+                audit_results["findings"].append("Low security level in use")
+                audit_results["recommendations"].append("Consider upgrading to HIGH security level")
+                audit_results["risk_score"] += 0.1
+            
+            # Determine overall risk level
+            if audit_results["risk_score"] >= 0.7:
+                audit_results["risk_level"] = "CRITICAL"
+            elif audit_results["risk_score"] >= 0.4:
+                audit_results["risk_level"] = "HIGH"
+            elif audit_results["risk_score"] >= 0.2:
+                audit_results["risk_level"] = "MEDIUM"
+            else:
+                audit_results["risk_level"] = "LOW"
+            
+            return audit_results
+            
+        except Exception as e:
+            audit_results["error"] = str(e)
+            audit_results["risk_level"] = "UNKNOWN"
+            return audit_results

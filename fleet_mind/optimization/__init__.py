@@ -2,14 +2,14 @@
 
 from .performance_monitor import PerformanceMonitor
 from .cache_manager import CacheManager
-from .load_balancer import LoadBalancer
-from .resource_manager import ResourceManager
-from .scaling_manager import ScalingManager
+from .performance_optimizer import PerformanceOptimizer, OptimizationStrategy, PerformanceMetrics, OptimizationAction, ScalingDecision
 
 __all__ = [
     "PerformanceMonitor",
     "CacheManager",
-    "LoadBalancer",
-    "ResourceManager",
-    "ScalingManager",
+    "PerformanceOptimizer",
+    "OptimizationStrategy",
+    "PerformanceMetrics", 
+    "OptimizationAction",
+    "ScalingDecision",
 ]

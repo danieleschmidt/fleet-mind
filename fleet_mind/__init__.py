@@ -13,6 +13,8 @@ from .communication.webrtc_streamer import WebRTCStreamer
 from .communication.latent_encoder import LatentEncoder
 from .planning.llm_planner import LLMPlanner
 from .fleet.drone_fleet import DroneFleet
+from .security import SecurityManager, SecurityLevel
+from .monitoring import HealthMonitor, HealthStatus, AlertSeverity
 
 __all__ = [
     "SwarmCoordinator",
@@ -20,4 +22,9 @@ __all__ = [
     "LatentEncoder",
     "LLMPlanner",
     "DroneFleet",
+    "SecurityManager",
+    "SecurityLevel",
+    "HealthMonitor", 
+    "HealthStatus",
+    "AlertSeverity",
 ]
