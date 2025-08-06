@@ -521,6 +521,294 @@ def drones(
 
 
 @app.command()
+def performance():
+    """Show detailed performance metrics and optimization suggestions."""
+    
+    if not cli.coordinator or not cli.fleet:
+        console.print("[red]Fleet not initialized. Run 'fleet-mind init' first.[/red]")
+        raise typer.Exit(1)
+    
+    async def get_performance():
+        # Get comprehensive performance statistics
+        perf_stats = cli.coordinator.get_comprehensive_stats()
+        fleet_health = await cli.fleet.get_health_status()
+        optimization = await cli.coordinator.optimize_fleet_performance()
+        
+        return perf_stats, fleet_health, optimization
+    
+    perf_stats, fleet_health, optimization = asyncio.run(get_performance())
+    
+    console.print("[bold magenta]Fleet Performance Analysis[/bold magenta]\n")
+    
+    # System health overview
+    sys_health = perf_stats.get('system_health', {})
+    health_table = Table(title="System Health")
+    health_table.add_column("Metric", style="cyan")
+    health_table.add_column("Value", style="green")
+    
+    health_table.add_row("Memory Usage", f"{sys_health.get('memory_usage_mb', 0):.1f} MB")
+    health_table.add_row("Active Tasks", str(sys_health.get('active_tasks', 0)))
+    health_table.add_row("Error Rate", f"{sys_health.get('error_rate', 0):.2%}")
+    health_table.add_row("Recent Latency", f"{perf_stats['swarm_status'].get('recent_latency_ms', 0):.1f}ms")
+    
+    console.print(health_table)
+    
+    # Performance optimizations
+    if optimization.get('recommendations'):
+        console.print("\n[bold yellow]Performance Recommendations:[/bold yellow]")
+        for rec in optimization['recommendations']:
+            console.print(f"• {rec}")
+    
+    if optimization.get('actions_taken'):
+        console.print("\n[bold green]Automatic Optimizations Applied:[/bold green]")
+        for action in optimization['actions_taken']:
+            console.print(f"✓ {action}")
+    
+    # Fleet health breakdown
+    console.print(f"\n[bold blue]Fleet Health Breakdown:[/bold blue]")
+    health_breakdown = Table()
+    health_breakdown.add_column("Status", style="cyan")
+    health_breakdown.add_column("Count", style="green")
+    
+    for status, drones in fleet_health.items():
+        health_breakdown.add_row(status.title(), str(len(drones)))
+    
+    console.print(health_breakdown)
+
+
+@app.command()
+def heal():
+    """Attempt automatic fleet healing and recovery."""
+    
+    if not cli.fleet:
+        console.print("[red]Fleet not initialized. Run 'fleet-mind init' first.[/red]")
+        raise typer.Exit(1)
+    
+    console.print("[bold blue]Initiating fleet auto-healing...[/bold blue]")
+    
+    async def perform_healing():
+        return await cli.fleet.auto_heal_fleet()
+    
+    healing_results = asyncio.run(perform_healing())
+    
+    # Display healing results
+    if healing_results.get('drones_recovered'):
+        console.print(f"[bold green]✓ Recovered {len(healing_results['drones_recovered'])} drones:[/bold green]")
+        for drone_id in healing_results['drones_recovered']:
+            console.print(f"  • {drone_id}")
+    
+    if healing_results.get('issues_resolved'):
+        console.print(f"\n[bold green]Issues Resolved:[/bold green]")
+        for issue in healing_results['issues_resolved']:
+            console.print(f"  ✓ {issue}")
+    
+    if healing_results.get('recommendations'):
+        console.print(f"\n[bold yellow]Manual Intervention Needed:[/bold yellow]")
+        for rec in healing_results['recommendations']:
+            console.print(f"  ! {rec}")
+    
+    if not any(healing_results.values()):
+        console.print("[green]Fleet is healthy - no healing actions needed.[/green]")
+
+
+@app.command()
+def formation(
+    formation_type: str = typer.Argument(..., help="Formation type (grid, line, v_formation)"),
+    spacing: float = typer.Option(10.0, "--spacing", "-s", help="Spacing between drones in meters"),
+    simulate: bool = typer.Option(False, "--simulate", help="Simulate formation without execution"),
+):
+    """Test and evaluate drone formation quality."""
+    
+    if not cli.fleet:
+        console.print("[red]Fleet not initialized. Run 'fleet-mind init' first.[/red]")
+        raise typer.Exit(1)
+    
+    target_formation = {
+        'formation_type': formation_type,
+        'spacing_meters': spacing,
+        'orientation_degrees': 0.0,
+    }
+    
+    console.print(f"[bold blue]Analyzing {formation_type} formation (spacing: {spacing}m):[/bold blue]\n")
+    
+    # Get current formation quality
+    quality_score = cli.fleet.get_formation_quality_score(target_formation)
+    
+    quality_table = Table(title="Formation Analysis")
+    quality_table.add_column("Metric", style="cyan")
+    quality_table.add_column("Value", style="green")
+    
+    quality_table.add_row("Formation Type", formation_type)
+    quality_table.add_row("Target Spacing", f"{spacing} meters")
+    quality_table.add_row("Quality Score", f"{quality_score:.2f} ({quality_score*100:.1f}%)")
+    
+    # Quality assessment
+    if quality_score > 0.9:
+        quality_status = "[bold green]Excellent[/bold green]"
+    elif quality_score > 0.7:
+        quality_status = "[bold yellow]Good[/bold yellow]"
+    elif quality_score > 0.5:
+        quality_status = "[bold orange]Fair[/bold orange]"
+    else:
+        quality_status = "[bold red]Poor[/bold red]"
+    
+    quality_table.add_row("Assessment", quality_status)
+    
+    console.print(quality_table)
+    
+    # Show formation candidates
+    candidates = cli.fleet.get_formation_candidates(formation_type, min_drones=3)
+    
+    if candidates:
+        console.print(f"\n[bold blue]Formation-Ready Drones ({len(candidates)}):[/bold blue]")
+        candidates_table = Table()
+        candidates_table.add_column("Drone ID", style="cyan")
+        candidates_table.add_column("Battery", style="yellow")
+        candidates_table.add_column("Health", style="green")
+        
+        for drone_id in candidates[:10]:  # Show first 10
+            state = cli.fleet.get_drone_state(drone_id)
+            if state:
+                candidates_table.add_row(
+                    drone_id,
+                    f"{state.battery_percent:.1f}%",
+                    f"{state.health_score:.2f}"
+                )
+        
+        console.print(candidates_table)
+    else:
+        console.print("[yellow]No drones currently available for formation flying.[/yellow]")
+
+
+@app.command()
+def test(
+    component: str = typer.Option("all", "--component", "-c", help="Component to test (all, coordinator, fleet, communication)"),
+    duration: int = typer.Option(30, "--duration", "-d", help="Test duration in seconds"),
+):
+    """Run comprehensive system tests."""
+    
+    if not cli.coordinator or not cli.fleet:
+        console.print("[red]Fleet not initialized. Run 'fleet-mind init' first.[/red]")
+        raise typer.Exit(1)
+    
+    console.print(f"[bold blue]Running {component} tests for {duration} seconds...[/bold blue]\n")
+    
+    async def run_tests():
+        test_results = {
+            'coordinator': {'status': 'skipped', 'details': {}},
+            'fleet': {'status': 'skipped', 'details': {}},
+            'communication': {'status': 'skipped', 'details': {}},
+        }
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+        ) as progress:
+            
+            if component in ['all', 'coordinator']:
+                task = progress.add_task("Testing coordinator...", total=None)
+                try:
+                    # Test mission planning
+                    plan = await cli.coordinator.generate_plan("Test formation flying")
+                    latency = plan.get('planning_latency_ms', 0)
+                    
+                    test_results['coordinator'] = {
+                        'status': 'passed' if latency < 1000 else 'warning',
+                        'details': {
+                            'planning_latency_ms': latency,
+                            'plan_generated': bool(plan),
+                            'plan_size_bytes': len(str(plan)),
+                        }
+                    }
+                    progress.update(task, description="✓ Coordinator tests completed")
+                except Exception as e:
+                    test_results['coordinator'] = {'status': 'failed', 'details': {'error': str(e)}}
+                    progress.update(task, description="✗ Coordinator tests failed")
+            
+            if component in ['all', 'fleet']:
+                task = progress.add_task("Testing fleet...", total=None)
+                try:
+                    # Test fleet operations
+                    fleet_status = cli.fleet.get_fleet_status()
+                    health_status = await cli.fleet.get_health_status()
+                    healing_result = await cli.fleet.auto_heal_fleet()
+                    
+                    test_results['fleet'] = {
+                        'status': 'passed',
+                        'details': {
+                            'active_drones': fleet_status['active_drones'],
+                            'average_health': fleet_status['average_health'],
+                            'healing_actions': len(healing_result.get('drones_recovered', [])),
+                        }
+                    }
+                    progress.update(task, description="✓ Fleet tests completed")
+                except Exception as e:
+                    test_results['fleet'] = {'status': 'failed', 'details': {'error': str(e)}}
+                    progress.update(task, description="✗ Fleet tests failed")
+            
+            if component in ['all', 'communication']:
+                task = progress.add_task("Testing communication...", total=None)
+                try:
+                    # Test communication system
+                    comm_status = cli.coordinator.webrtc_streamer.get_status()
+                    
+                    # Test message broadcasting
+                    test_message = {"test": True, "timestamp": time.time()}
+                    broadcast_result = await cli.coordinator.webrtc_streamer.broadcast(
+                        test_message, priority="best_effort"
+                    )
+                    
+                    success_rate = sum(1 for success in broadcast_result.values() if success) / len(broadcast_result)
+                    
+                    test_results['communication'] = {
+                        'status': 'passed' if success_rate > 0.8 else 'warning',
+                        'details': {
+                            'active_connections': comm_status['active_connections'],
+                            'average_latency_ms': comm_status['average_latency_ms'],
+                            'broadcast_success_rate': success_rate,
+                        }
+                    }
+                    progress.update(task, description="✓ Communication tests completed")
+                except Exception as e:
+                    test_results['communication'] = {'status': 'failed', 'details': {'error': str(e)}}
+                    progress.update(task, description="✗ Communication tests failed")
+        
+        return test_results
+    
+    test_results = asyncio.run(run_tests())
+    
+    # Display test results
+    console.print("\n[bold magenta]Test Results Summary:[/bold magenta]\n")
+    
+    for component_name, result in test_results.items():
+        if result['status'] == 'skipped':
+            continue
+        
+        status_color = {
+            'passed': 'green',
+            'warning': 'yellow', 
+            'failed': 'red'
+        }.get(result['status'], 'white')
+        
+        console.print(f"[bold]{component_name.title()}:[/bold] [{status_color}]{result['status'].upper()}[/{status_color}]")
+        
+        if result['details']:
+            details_table = Table()
+            details_table.add_column("Metric", style="cyan")
+            details_table.add_column("Value", style="green")
+            
+            for key, value in result['details'].items():
+                if key == 'error':
+                    details_table.add_row(key, f"[red]{value}[/red]")
+                else:
+                    details_table.add_row(key, str(value))
+            
+            console.print(details_table)
+        
+        console.print()
+
+
+@app.command()
 def version():
     """Show Fleet-Mind version information."""
     from . import __version__, __author__

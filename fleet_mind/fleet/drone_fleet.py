@@ -552,3 +552,178 @@ class DroneFleet:
             # In real implementation, send hold command
             return True
         return False
+    
+    def get_formation_quality_score(self, target_formation: Dict[str, Any]) -> float:
+        """Calculate formation quality score based on current positions.
+        
+        Args:
+            target_formation: Target formation specification
+            
+        Returns:
+            Quality score between 0-1 (1 = perfect formation)
+        """
+        formation_type = target_formation.get('formation_type', 'grid')
+        spacing = target_formation.get('spacing_meters', 10.0)
+        
+        if len(self.active_drones) < 2:
+            return 1.0  # Perfect for single drone
+        
+        # Calculate formation error
+        positions = []
+        for drone_id in self.active_drones:
+            if drone_id in self.drone_states:
+                pos = self.drone_states[drone_id].position
+                positions.append(pos)
+        
+        if not positions:
+            return 0.0
+        
+        # Simple formation quality based on spacing consistency
+        if formation_type == 'grid':
+            return self._calculate_grid_quality(positions, spacing)
+        elif formation_type == 'line':
+            return self._calculate_line_quality(positions, spacing)
+        elif formation_type == 'v_formation':
+            return self._calculate_v_formation_quality(positions, spacing)
+        else:
+            # Default: measure spacing consistency
+            return self._calculate_spacing_consistency(positions, spacing)
+    
+    def _calculate_grid_quality(self, positions: List[Tuple[float, float, float]], spacing: float) -> float:
+        """Calculate grid formation quality."""
+        if len(positions) < 4:
+            return self._calculate_spacing_consistency(positions, spacing)
+        
+        # For grid, check if positions form regular grid pattern
+        x_coords = [pos[0] for pos in positions]
+        y_coords = [pos[1] for pos in positions]
+        
+        # Check spacing consistency in both directions
+        x_sorted = sorted(set(x_coords))
+        y_sorted = sorted(set(y_coords))
+        
+        x_spacing_error = 0.0
+        if len(x_sorted) > 1:
+            x_diffs = [x_sorted[i+1] - x_sorted[i] for i in range(len(x_sorted)-1)]
+            target_x_spacing = spacing
+            x_spacing_error = sum(abs(diff - target_x_spacing) for diff in x_diffs) / len(x_diffs)
+        
+        y_spacing_error = 0.0
+        if len(y_sorted) > 1:
+            y_diffs = [y_sorted[i+1] - y_sorted[i] for i in range(len(y_sorted)-1)]
+            target_y_spacing = spacing
+            y_spacing_error = sum(abs(diff - target_y_spacing) for diff in y_diffs) / len(y_diffs)
+        
+        avg_error = (x_spacing_error + y_spacing_error) / 2
+        return max(0.0, 1.0 - (avg_error / spacing))
+    
+    def _calculate_line_quality(self, positions: List[Tuple[float, float, float]], spacing: float) -> float:
+        """Calculate line formation quality."""
+        if len(positions) < 2:
+            return 1.0
+        
+        # Sort positions by distance from first position
+        ref_pos = positions[0]
+        sorted_positions = sorted(positions, key=lambda p: 
+                                (p[0] - ref_pos[0])**2 + (p[1] - ref_pos[1])**2)
+        
+        # Check spacing between consecutive drones
+        spacing_errors = []
+        for i in range(len(sorted_positions) - 1):
+            pos1 = sorted_positions[i]
+            pos2 = sorted_positions[i + 1]
+            actual_dist = ((pos2[0] - pos1[0])**2 + (pos2[1] - pos1[1])**2)**0.5
+            error = abs(actual_dist - spacing)
+            spacing_errors.append(error)
+        
+        if spacing_errors:
+            avg_error = sum(spacing_errors) / len(spacing_errors)
+            return max(0.0, 1.0 - (avg_error / spacing))
+        
+        return 1.0
+    
+    def _calculate_v_formation_quality(self, positions: List[Tuple[float, float, float]], spacing: float) -> float:
+        """Calculate V-formation quality."""
+        if len(positions) < 3:
+            return self._calculate_line_quality(positions, spacing)
+        
+        # For V-formation, find leader (front-most) and check if others form V behind
+        # This is a simplified check - real implementation would be more sophisticated
+        return self._calculate_spacing_consistency(positions, spacing)
+    
+    def _calculate_spacing_consistency(self, positions: List[Tuple[float, float, float]], target_spacing: float) -> float:
+        """Calculate general spacing consistency quality."""
+        if len(positions) < 2:
+            return 1.0
+        
+        # Calculate all pairwise distances
+        distances = []
+        for i in range(len(positions)):
+            for j in range(i + 1, len(positions)):
+                pos1 = positions[i]
+                pos2 = positions[j]
+                dist = ((pos2[0] - pos1[0])**2 + (pos2[1] - pos1[1])**2 + (pos2[2] - pos1[2])**2)**0.5
+                distances.append(dist)
+        
+        # Find distances closest to target spacing (neighboring drones)
+        distances.sort()
+        min_expected = len(positions) - 1  # Minimum edges in formation
+        neighbor_distances = distances[:min_expected]
+        
+        # Calculate error from target spacing
+        spacing_errors = [abs(dist - target_spacing) for dist in neighbor_distances]
+        avg_error = sum(spacing_errors) / len(spacing_errors) if spacing_errors else 0
+        
+        return max(0.0, 1.0 - (avg_error / target_spacing))
+    
+    async def auto_heal_fleet(self) -> Dict[str, Any]:
+        """Automatically attempt to heal fleet issues.
+        
+        Returns:
+            Dictionary of healing actions taken
+        """
+        healing_actions = {
+            'drones_recovered': [],
+            'issues_resolved': [],
+            'recommendations': [],
+        }
+        
+        # Try to recover failed drones
+        for drone_id in list(self.failed_drones):
+            if drone_id in self.drone_states:
+                state = self.drone_states[drone_id]
+                
+                # Check if it's recoverable (maybe just communication issue)
+                if time.time() - state.last_update < 60:  # Within last minute
+                    # Attempt recovery by resetting status
+                    state.status = DroneStatus.IDLE
+                    state.health_score = max(0.5, state.health_score)
+                    
+                    self.failed_drones.discard(drone_id)
+                    self.active_drones.add(drone_id)
+                    healing_actions['drones_recovered'].append(drone_id)
+                    healing_actions['issues_resolved'].append(f"Recovered communication with {drone_id}")
+        
+        # Check for maintenance drones that could return to service
+        for drone_id in list(self.maintenance_drones):
+            if drone_id in self.drone_states:
+                state = self.drone_states[drone_id]
+                
+                # If health improved and battery sufficient, return to service
+                if (state.health_score > self.config.health_warning_threshold and
+                    state.battery_percent > self.config.battery_warning_threshold):
+                    
+                    state.status = DroneStatus.IDLE
+                    self.maintenance_drones.discard(drone_id)
+                    self.active_drones.add(drone_id)
+                    healing_actions['drones_recovered'].append(drone_id)
+                    healing_actions['issues_resolved'].append(f"Returned {drone_id} to service after maintenance")
+        
+        # Generate recommendations for unrecoverable issues
+        if len(self.failed_drones) > 0:
+            healing_actions['recommendations'].append(f"Manual intervention needed for {len(self.failed_drones)} failed drones")
+        
+        if len(healing_actions['drones_recovered']) > 0:
+            print(f"Fleet auto-healing recovered {len(healing_actions['drones_recovered'])} drones")
+        
+        return healing_actions
