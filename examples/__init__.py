@@ -1,0 +1,1 @@
+"""Example applications demonstrating Fleet-Mind capabilities."""
