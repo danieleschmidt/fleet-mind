@@ -4,8 +4,43 @@ import asyncio
 import json
 import time
 from typing import Dict, List, Optional, Any, Set
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from enum import Enum
+
+# Custom JSON encoder for handling numpy arrays and other types
+class FleetMindJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles numpy arrays and other Fleet-Mind types."""
+    
+    def default(self, obj):
+        # Handle numpy arrays
+        if hasattr(obj, 'tolist'):
+            return obj.tolist()
+        
+        # Handle numpy scalars
+        if hasattr(obj, 'item'):
+            return obj.item()
+            
+        # Handle other numpy types
+        if str(type(obj)).startswith("<class 'numpy."):
+            if hasattr(obj, 'tolist'):
+                return obj.tolist()
+            else:
+                return str(obj)
+        
+        # Handle dataclasses
+        if hasattr(obj, '__dataclass_fields__'):
+            return asdict(obj)
+            
+        # Handle enums
+        if isinstance(obj, Enum):
+            return obj.value
+            
+        # Handle sets
+        if isinstance(obj, set):
+            return list(obj)
+            
+        # Fall back to default behavior
+        return super().default(obj)
 
 # WebRTC imports with fallback handling
 try:
@@ -229,7 +264,7 @@ class WebRTCStreamer:
         if not self.is_initialized:
             raise RuntimeError("WebRTC streamer not initialized")
         
-        # Serialize data
+        # Serialize data using custom encoder
         try:
             message_data = json.dumps({
                 'type': 'latent_action',
@@ -237,7 +272,7 @@ class WebRTCStreamer:
                 'timestamp': time.time(),
                 'priority': priority,
                 'reliability': reliability,
-            })
+            }, cls=FleetMindJSONEncoder)
         except (TypeError, ValueError) as e:
             raise ValueError(f"Data serialization failed: {e}")
         

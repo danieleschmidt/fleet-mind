@@ -5,15 +5,99 @@ import json
 import time
 from typing import Dict, List, Optional, Any
 
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
-from std_msgs.msg import String, Float32
-from geometry_msgs.msg import PoseStamped, Twist
-from nav_msgs.msg import OccupancyGrid
-from sensor_msgs.msg import PointCloud2, Image
-from std_srvs.srv import SetBool, Trigger
-from rclpy.callback_groups import ReentrantCallbackGroup
+# ROS 2 imports with fallback
+try:
+    import rclpy
+    from rclpy.node import Node
+    from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+    from std_msgs.msg import String, Float32
+    from geometry_msgs.msg import PoseStamped, Twist
+    from nav_msgs.msg import OccupancyGrid
+    from sensor_msgs.msg import PointCloud2, Image
+    from std_srvs.srv import SetBool, Trigger
+    from rclpy.callback_groups import ReentrantCallbackGroup
+    ROS2_AVAILABLE = True
+except ImportError:
+    # Mock ROS 2 classes for environments without ROS 2
+    class Node:
+        def __init__(self, name): 
+            self.name = name
+            print(f"Mock ROS 2 Node created: {name}")
+        def get_logger(self): 
+            import logging
+            return logging.getLogger(self.name)
+        def create_publisher(self, msg_type, topic, qos): 
+            return MockPublisher(topic)
+        def create_subscription(self, msg_type, topic, callback, qos): 
+            return MockSubscription(topic)
+        def create_service(self, srv_type, name, callback): 
+            return MockService(name)
+        def create_timer(self, period, callback): 
+            return MockTimer(period, callback)
+        def destroy_node(self): pass
+    
+    class MockPublisher:
+        def __init__(self, topic): self.topic = topic
+        def publish(self, msg): pass
+    
+    class MockSubscription:
+        def __init__(self, topic): self.topic = topic
+    
+    class MockService:
+        def __init__(self, name): self.name = name
+    
+    class MockTimer:
+        def __init__(self, period, callback): 
+            self.period = period
+            self.callback = callback
+    
+    class QoSProfile:
+        def __init__(self, **kwargs): pass
+    
+    class ReliabilityPolicy:
+        RELIABLE = "reliable"
+        BEST_EFFORT = "best_effort"
+    
+    class DurabilityPolicy:
+        TRANSIENT_LOCAL = "transient_local"
+    
+    class ReentrantCallbackGroup: pass
+    
+    class String: 
+        def __init__(self): self.data = ""
+    
+    class Float32:
+        def __init__(self): self.data = 0.0
+    
+    # Mock message classes
+    class PoseStamped: 
+        def __init__(self): 
+            self.header = type('Header', (), {'stamp': 0, 'frame_id': ''})()
+            self.pose = type('Pose', (), {'position': type('Point', (), {'x': 0, 'y': 0, 'z': 0})(), 'orientation': type('Quaternion', (), {'x': 0, 'y': 0, 'z': 0, 'w': 1})()})()
+    
+    class Twist:
+        def __init__(self):
+            self.linear = type('Vector3', (), {'x': 0, 'y': 0, 'z': 0})()
+            self.angular = type('Vector3', (), {'x': 0, 'y': 0, 'z': 0})()
+    
+    class OccupancyGrid: pass
+    class PointCloud2: pass  
+    class Image: pass
+    class SetBool: pass
+    class Trigger: pass
+    
+    class rclpy:
+        @staticmethod
+        def init(): pass
+        @staticmethod
+        def shutdown(): pass
+        @staticmethod
+        def spin(node): pass
+        @staticmethod
+        def spin_once(node, timeout_sec=None): pass
+    
+    ROS2_AVAILABLE = False
+    print("Warning: ROS 2 not available, using mock implementation")
 
 from ..coordination.swarm_coordinator import SwarmCoordinator, MissionConstraints
 from ..fleet.drone_fleet import DroneFleet, DroneStatus
