@@ -11,8 +11,45 @@ from enum import Enum
 from collections import OrderedDict
 import threading
 
-import redis
-import aioredis
+# Redis imports with fallback
+try:
+    import redis
+    import aioredis
+    REDIS_AVAILABLE = True
+except ImportError:
+    # Mock Redis classes
+    class redis:
+        @staticmethod
+        def Redis(*args, **kwargs):
+            return MockRedis()
+    
+    class aioredis:
+        @staticmethod
+        def from_url(*args, **kwargs):
+            return MockAsyncRedis()
+    
+    REDIS_AVAILABLE = False
+    print("Warning: Redis not available, using in-memory caching only")
+
+class MockRedis:
+    def __init__(self):
+        self._data = {}
+    def get(self, key): return self._data.get(key)
+    def set(self, key, value, ex=None): self._data[key] = value
+    def delete(self, key): self._data.pop(key, None)
+    def flushdb(self): self._data.clear()
+    def exists(self, key): return key in self._data
+    def ping(self): return True
+
+class MockAsyncRedis:
+    def __init__(self):
+        self._data = {}
+    async def get(self, key): return self._data.get(key)
+    async def set(self, key, value, ex=None): self._data[key] = value
+    async def delete(self, key): self._data.pop(key, None)
+    async def flushdb(self): self._data.clear()
+    async def exists(self, key): return key in self._data
+    async def ping(self): return True
 
 from ..utils.logging import get_logger
 

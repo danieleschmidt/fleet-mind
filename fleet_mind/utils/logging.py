@@ -16,10 +16,48 @@ try:
     STRUCTLOG_AVAILABLE = True
 except ImportError:
     # Fallback implementation for when structlog is not available
+    class MockBoundLogger:
+        """Mock bound logger that chains bind calls."""
+        def __init__(self, logger, bindings=None):
+            self._logger = logger
+            self._bindings = bindings or {}
+        
+        def bind(self, **kwargs):
+            """Return new mock logger with additional bindings."""
+            new_bindings = self._bindings.copy()
+            new_bindings.update(kwargs)
+            return MockBoundLogger(self._logger, new_bindings)
+        
+        def debug(self, message, **kwargs):
+            self._logger.debug(f"{message} {self._format_context(kwargs)}")
+        
+        def info(self, message, **kwargs):
+            self._logger.info(f"{message} {self._format_context(kwargs)}")
+            
+        def warning(self, message, **kwargs):
+            self._logger.warning(f"{message} {self._format_context(kwargs)}")
+            
+        def error(self, message, **kwargs):
+            self._logger.error(f"{message} {self._format_context(kwargs)}")
+            
+        def critical(self, message, **kwargs):
+            self._logger.critical(f"{message} {self._format_context(kwargs)}")
+        
+        def _format_context(self, extra_kwargs=None):
+            """Format context for logging."""
+            context = self._bindings.copy()
+            if extra_kwargs:
+                context.update(extra_kwargs)
+            if context:
+                context_str = " ".join(f"{k}={v}" for k, v in context.items())
+                return f"[{context_str}]"
+            return ""
+    
     class structlog:
         @staticmethod
         def get_logger(name):
-            return logging.getLogger(name)
+            std_logger = logging.getLogger(name)
+            return MockBoundLogger(std_logger)
         
         @staticmethod
         def configure(*args, **kwargs):

@@ -28,6 +28,9 @@ from ..monitoring import HealthMonitor, HealthStatus, AlertSeverity
 from ..utils.performance import cached, async_cached, performance_monitor, get_performance_summary
 from ..utils.concurrency import execute_concurrent, get_concurrency_stats
 from ..utils.auto_scaling import update_scaling_metric, get_autoscaling_stats
+from ..utils.circuit_breaker import circuit_breaker, CircuitBreakerConfig, get_circuit_breaker
+from ..utils.retry import retry, RetryConfig, LLM_RETRY_CONFIG, NETWORK_RETRY_CONFIG
+from ..utils.input_sanitizer import validate_mission_input, validate_drone_command
 
 
 class MissionStatus(Enum):
@@ -190,13 +193,15 @@ class SwarmCoordinator:
 
     @async_cached(ttl=300, max_size=100)  # Cache plans for 5 minutes
     @performance_monitor
+    @retry(max_attempts=3, initial_delay=1.0, exceptions=(ConnectionError, TimeoutError))
+    @circuit_breaker("mission_planning", CircuitBreakerConfig(failure_threshold=3, recovery_timeout=30.0))
     async def generate_plan(
         self,
         mission: str,
         constraints: Optional[MissionConstraints] = None,
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Generate mission plan using LLM.
+        """Generate mission plan using LLM with robust error handling.
         
         Args:
             mission: Mission description in natural language
@@ -205,53 +210,100 @@ class SwarmCoordinator:
             
         Returns:
             Generated mission plan with latent encoding
+            
+        Raises:
+            RuntimeError: If no fleet is connected
+            ValueError: If input validation fails
+            ConnectionError: If LLM service is unavailable
         """
+        # Input validation and sanitization
+        try:
+            if not mission or not isinstance(mission, str):
+                raise ValueError("Mission description must be a non-empty string")
+            
+            # Sanitize mission input
+            sanitized_input = validate_mission_input({
+                'mission': mission,
+                'context': context or {}
+            })
+            mission = sanitized_input['mission']
+            context = sanitized_input['context']
+            
+        except Exception as e:
+            self.health_monitor.record_error("coordination", f"Input validation failed: {e}")
+            raise ValueError(f"Mission input validation failed: {e}")
+        
+        # Fleet connectivity check
         if not self.fleet:
-            raise RuntimeError("No fleet connected")
+            self.health_monitor.record_error("coordination", "No fleet connected for mission planning")
+            raise RuntimeError("No fleet connected - cannot generate mission plan")
             
         # Use provided constraints or defaults
         active_constraints = constraints or self.safety_constraints
         
-        # Prepare context for LLM
-        planning_context = {
-            'mission': mission,
-            'num_drones': self.swarm_state.num_active_drones,
-            'constraints': active_constraints.__dict__,
-            'drone_capabilities': self.fleet.get_capabilities(),
-            'current_state': self.swarm_state.__dict__,
-            'history': self.context_history[-5:],  # Last 5 contexts
-        }
+        try:
+            # Prepare context for LLM
+            planning_context = {
+                'mission': mission,
+                'num_drones': self.swarm_state.num_active_drones,
+                'constraints': active_constraints.__dict__,
+                'drone_capabilities': self.fleet.get_capabilities(),
+                'current_state': self.swarm_state.__dict__,
+                'history': self.context_history[-5:],  # Last 5 contexts
+            }
+            
+            if context:
+                planning_context.update(context)
+            
+            # Generate plan with LLM (with circuit breaker protection)
+            start_time = time.time()
+            plan = await self.llm_planner.generate_plan(planning_context)
+            planning_latency = (time.time() - start_time) * 1000  # ms
+            
+            # Validate plan output
+            if not plan or not isinstance(plan, dict):
+                raise ValueError("LLM returned invalid plan format")
+                
+        except Exception as e:
+            self.health_monitor.record_error("llm_planning", f"Plan generation failed: {e}")
+            # Try to provide a fallback basic plan
+            try:
+                fallback_plan = await self._generate_fallback_plan(mission, active_constraints)
+                self.logger.warning(f"Using fallback plan due to LLM failure: {e}")
+                return fallback_plan
+            except Exception as fallback_error:
+                self.logger.error(f"Fallback plan generation also failed: {fallback_error}")
+                raise ConnectionError(f"Mission planning failed: {e}, fallback also failed: {fallback_error}")
         
-        if context:
-            planning_context.update(context)
-        
-        # Generate plan with LLM
-        start_time = time.time()
-        plan = await self.llm_planner.generate_plan(planning_context)
-        planning_latency = (time.time() - start_time) * 1000  # ms
-        
-        # Encode to latent representation - handle both old and new plan formats
-        actions_to_encode = []
-        if 'actions' in plan:
-            actions_to_encode = plan['actions']
-        elif 'action_sequences' in plan and len(plan['action_sequences']) > 0:
-            # Extract actions from action sequences
-            for seq in plan['action_sequences']:
-                if 'actions' in seq:
-                    actions_to_encode.extend(seq['actions'])
-        
-        latent_plan = self.latent_encoder.encode(actions_to_encode)
-        
-        # Package complete plan
-        complete_plan = {
-            'mission_id': f"mission_{int(time.time())}",
-            'description': mission,
-            'raw_plan': plan,
-            'latent_code': latent_plan,
-            'constraints': active_constraints.__dict__,
-            'planning_latency_ms': planning_latency,
-            'timestamp': time.time(),
-        }
+        try:
+            # Encode to latent representation - handle both old and new plan formats
+            actions_to_encode = []
+            if 'actions' in plan:
+                actions_to_encode = plan['actions']
+            elif 'action_sequences' in plan and len(plan['action_sequences']) > 0:
+                # Extract actions from action sequences
+                for seq in plan['action_sequences']:
+                    if 'actions' in seq:
+                        actions_to_encode.extend(seq['actions'])
+            
+            # Encode actions to latent space
+            latent_plan = self.latent_encoder.encode(actions_to_encode)
+            
+            # Package complete plan
+            complete_plan = {
+                'mission_id': f"mission_{int(time.time())}",
+                'description': mission,
+                'raw_plan': plan,
+                'latent_code': latent_plan,
+                'constraints': active_constraints.__dict__,
+                'planning_latency_ms': planning_latency,
+                'timestamp': time.time(),
+            }
+            
+        except Exception as e:
+            self.health_monitor.record_error("encoding", f"Latent encoding failed: {e}")
+            self.logger.error(f"Failed to encode plan to latent space: {e}")
+            raise ValueError(f"Plan encoding failed: {e}")
         
         # Store in context history
         self.context_history.append({
@@ -441,6 +493,59 @@ class SwarmCoordinator:
         confidence = (health_score * 0.6) + (progress_score * 0.4)
         return min(max(confidence, 0.0), 1.0)
 
+    async def _generate_fallback_plan(self, 
+                                    mission: str, 
+                                    constraints: MissionConstraints) -> Dict[str, Any]:
+        """Generate a basic fallback plan when LLM is unavailable."""
+        self.logger.info("Generating fallback mission plan")
+        
+        # Create basic formation-based plan
+        num_drones = self.swarm_state.num_active_drones
+        formation_pattern = "grid" if num_drones > 4 else "line"
+        
+        fallback_plan = {
+            'summary': f'Fallback {formation_pattern} formation mission',
+            'objectives': [
+                'Maintain safe formation',
+                'Follow basic navigation pattern', 
+                'Monitor for obstacles',
+                'Report status regularly'
+            ],
+            'action_sequences': [
+                {
+                    'phase': 'formation',
+                    'duration': 30,
+                    'actions': ['form_formation', 'check_spacing', 'stabilize']
+                },
+                {
+                    'phase': 'execution',
+                    'duration': 300,
+                    'actions': ['navigate_pattern', 'maintain_formation', 'monitor']
+                },
+                {
+                    'phase': 'return',
+                    'duration': 60,
+                    'actions': ['return_home', 'land_sequence']
+                }
+            ],
+            'estimated_duration_minutes': 7,
+            'fallback': True
+        }
+        
+        # Encode to latent representation
+        latent_plan = self.latent_encoder.encode(['form_formation', 'navigate_pattern', 'return_home'])
+        
+        return {
+            'mission_id': f"fallback_mission_{int(time.time())}",
+            'description': f"Fallback plan: {mission[:100]}...",
+            'raw_plan': fallback_plan,
+            'latent_code': latent_plan,
+            'constraints': constraints.__dict__,
+            'planning_latency_ms': 0.5,  # Very fast fallback
+            'timestamp': time.time(),
+            'fallback': True
+        }
+
     async def _trigger_callbacks(self, event: str, data: Any) -> None:
         """Trigger registered callbacks for an event."""
         if event in self._callbacks:
@@ -451,7 +556,8 @@ class SwarmCoordinator:
                     else:
                         callback(data)
                 except Exception as e:
-                    print(f"Callback error for {event}: {e}")
+                    self.health_monitor.record_error("callback", f"Callback error for {event}: {e}")
+                    self.logger.error(f"Callback error for {event}: {e}")
 
     def _get_recent_latency(self) -> float:
         """Get recent average latency from context history."""

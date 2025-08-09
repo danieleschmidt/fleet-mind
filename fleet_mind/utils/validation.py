@@ -132,7 +132,7 @@ class MissionConstraintsValidator(BaseModel):
 class DroneStateValidator(BaseModel):
     """Pydantic model for drone state validation."""
     
-    drone_id: str = Field(regex=r'^[a-zA-Z0-9_-]+$', description="Drone identifier")
+    drone_id: str = Field(pattern=r'^[a-zA-Z0-9_-]+$', description="Drone identifier")
     position: Tuple[float, float, float] = Field(description="Position (x, y, z)")
     velocity: Tuple[float, float, float] = Field(description="Velocity (vx, vy, vz)")
     orientation: Tuple[float, float, float] = Field(description="Orientation (roll, pitch, yaw)")
