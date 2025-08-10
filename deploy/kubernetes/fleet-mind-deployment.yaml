@@ -1,0 +1,465 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fleet-mind
+  labels:
+    name: fleet-mind
+
+---
+# ConfigMap for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-mind-config
+  namespace: fleet-mind
+data:
+  FLEET_MIND_ENV: "production"
+  FLEET_MIND_LOG_LEVEL: "INFO"
+  FLEET_MIND_SECURITY_LEVEL: "HIGH"
+  FLEET_MIND_ENABLE_OPTIMIZATION: "true"
+  FLEET_MIND_ENABLE_DISTRIBUTED: "true"
+  REDIS_URL: "redis://fleet-mind-redis:6379"
+  MONGODB_URL: "mongodb://fleet-mind-mongodb:27017/fleet_mind"
+
+---
+# Secret for sensitive configuration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fleet-mind-secrets
+  namespace: fleet-mind
+type: Opaque
+data:
+  OPENAI_API_KEY: "" # Base64 encoded API key
+  MONGODB_USERNAME: "" # Base64 encoded username
+  MONGODB_PASSWORD: "" # Base64 encoded password
+  JWT_SECRET_KEY: "" # Base64 encoded JWT secret
+
+---
+# Fleet-Mind Coordinator Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-mind-coordinator
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-coordinator
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: fleet-mind-coordinator
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: fleet-mind-coordinator
+        version: v1
+    spec:
+      containers:
+      - name: fleet-mind-coordinator
+        image: fleet-mind:latest
+        ports:
+        - containerPort: 8000
+          name: http
+        - containerPort: 8080
+          name: webrtc
+        envFrom:
+        - configMapRef:
+            name: fleet-mind-config
+        - secretRef:
+            name: fleet-mind-secrets
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: config
+          mountPath: /app/config
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: fleet-mind-config
+
+---
+# Fleet-Mind Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-mind-worker
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-worker
+    version: v1
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: fleet-mind-worker
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: fleet-mind-worker
+        version: v1
+    spec:
+      containers:
+      - name: fleet-mind-worker
+        image: fleet-mind-worker:latest
+        env:
+        - name: FLEET_MIND_NODE_TYPE
+          value: "worker"
+        - name: FLEET_MIND_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: FLEET_MIND_COORDINATOR_URL
+          value: "http://fleet-mind-coordinator:8000"
+        envFrom:
+        - configMapRef:
+            name: fleet-mind-config
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - python3
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+
+---
+# Service for Fleet-Mind Coordinator
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleet-mind-coordinator
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-coordinator
+spec:
+  selector:
+    app: fleet-mind-coordinator
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+  - name: webrtc
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP
+
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-mind-redis
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fleet-mind-redis
+  template:
+    metadata:
+      labels:
+        app: fleet-mind-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-pvc
+
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleet-mind-redis
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-redis
+spec:
+  selector:
+    app: fleet-mind-redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+  type: ClusterIP
+
+---
+# MongoDB Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-mind-mongodb
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-mongodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fleet-mind-mongodb
+  template:
+    metadata:
+      labels:
+        app: fleet-mind-mongodb
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:6
+        ports:
+        - containerPort: 27017
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: fleet-mind-secrets
+              key: MONGODB_USERNAME
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: fleet-mind-secrets
+              key: MONGODB_PASSWORD
+        - name: MONGO_INITDB_DATABASE
+          value: "fleet_mind"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+      volumes:
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: mongodb-pvc
+
+---
+# MongoDB Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleet-mind-mongodb
+  namespace: fleet-mind
+  labels:
+    app: fleet-mind-mongodb
+spec:
+  selector:
+    app: fleet-mind-mongodb
+  ports:
+  - port: 27017
+    targetPort: 27017
+  type: ClusterIP
+
+---
+# Redis PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: fleet-mind
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd
+
+---
+# MongoDB PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-pvc
+  namespace: fleet-mind
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: fast-ssd
+
+---
+# Ingress for external access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fleet-mind-ingress
+  namespace: fleet-mind
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - api.fleet-mind.com
+    secretName: fleet-mind-tls
+  rules:
+  - host: api.fleet-mind.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: fleet-mind-coordinator
+            port:
+              number: 8000
+
+---
+# HorizontalPodAutoscaler for coordinator
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fleet-mind-coordinator-hpa
+  namespace: fleet-mind
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fleet-mind-coordinator
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# HorizontalPodAutoscaler for workers
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fleet-mind-worker-hpa
+  namespace: fleet-mind
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fleet-mind-worker
+  minReplicas: 6
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+
+---
+# NetworkPolicy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fleet-mind-network-policy
+  namespace: fleet-mind
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: fleet-mind
+    ports:
+    - protocol: TCP
+      port: 8000
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 6379
+    - protocol: TCP
+      port: 27017
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS
+    - protocol: TCP
+      port: 80   # HTTP
+    - protocol: UDP
+      port: 53   # DNS

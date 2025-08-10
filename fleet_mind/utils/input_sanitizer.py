@@ -290,3 +290,35 @@ def validate_drone_command(data: Dict[str, Any]) -> Dict[str, Any]:
     )
     sanitizer = InputSanitizer(config)
     return sanitizer.sanitize(data, "drone_command")
+
+
+def validate_communication_message(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate communication message data."""
+    config = SanitizationConfig(
+        level=SanitizationLevel.STRICT,
+        max_string_length=50000,  # Allow larger message payloads
+        max_dict_keys=100,
+    )
+    sanitizer = InputSanitizer(config)
+    return sanitizer.sanitize(data, "communication_message")
+
+
+def validate_sensor_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate sensor data input."""
+    config = SanitizationConfig(
+        level=SanitizationLevel.BASIC,  # Sensor data is typically numeric
+        max_dict_keys=200,  # Many sensor readings
+    )
+    sanitizer = InputSanitizer(config)
+    return sanitizer.sanitize(data, "sensor_data")
+
+
+def validate_configuration_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate configuration data."""
+    config = SanitizationConfig(
+        level=SanitizationLevel.STRICT,
+        max_string_length=2000,
+        max_dict_keys=100,
+    )
+    sanitizer = InputSanitizer(config)
+    return sanitizer.sanitize(data, "configuration_data")
