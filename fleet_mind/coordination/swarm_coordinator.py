@@ -2,6 +2,9 @@
 
 import asyncio
 import time
+import json
+import hashlib
+import statistics
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -31,6 +34,11 @@ from ..utils.auto_scaling import update_scaling_metric, get_autoscaling_stats
 from ..utils.circuit_breaker import circuit_breaker, CircuitBreakerConfig, get_circuit_breaker
 from ..utils.retry import retry, RetryConfig, LLM_RETRY_CONFIG, NETWORK_RETRY_CONFIG
 from ..utils.input_sanitizer import validate_mission_input, validate_drone_command
+from ..optimization.ai_performance_optimizer import get_ai_optimizer, record_performance_metrics
+from ..optimization.service_mesh_coordinator import get_service_mesh, ServiceType, route_service_request
+from ..optimization.ml_cost_optimizer import get_cost_optimizer, record_cost_metrics
+from ..optimization.multi_tier_cache import get_multi_tier_cache, cached_get, cached_put
+from ..communication.high_performance_comm import get_hp_communicator, send_high_performance_message, Priority
 
 
 class MissionStatus(Enum):
@@ -135,6 +143,10 @@ class SwarmCoordinator:
         self.context_history: List[Dict[str, Any]] = []
         self.start_time = time.time()  # Track initialization time
         
+        # Initialize logging
+        from ..utils.logging import get_logger
+        self.logger = get_logger("swarm_coordinator", component="coordination")
+        
         # Event callbacks
         self._callbacks: Dict[str, List[Callable]] = {
             'mission_start': [],
@@ -230,12 +242,16 @@ class SwarmCoordinator:
             context = sanitized_input['context']
             
         except Exception as e:
-            self.health_monitor.record_error("coordination", f"Input validation failed: {e}")
+            if self.health_monitor:
+                self.health_monitor.record_error("coordination", f"Input validation failed: {e}")
+            self.logger.error(f"Mission input validation failed: {e}")
             raise ValueError(f"Mission input validation failed: {e}")
         
         # Fleet connectivity check
         if not self.fleet:
-            self.health_monitor.record_error("coordination", "No fleet connected for mission planning")
+            if self.health_monitor:
+                self.health_monitor.record_error("coordination", "No fleet connected for mission planning")
+            self.logger.error("No fleet connected - cannot generate mission plan")
             raise RuntimeError("No fleet connected - cannot generate mission plan")
             
         # Use provided constraints or defaults
@@ -265,7 +281,9 @@ class SwarmCoordinator:
                 raise ValueError("LLM returned invalid plan format")
                 
         except Exception as e:
-            self.health_monitor.record_error("llm_planning", f"Plan generation failed: {e}")
+            if self.health_monitor:
+                self.health_monitor.record_error("llm_planning", f"Plan generation failed: {e}")
+            self.logger.error(f"Plan generation failed: {e}")
             # Try to provide a fallback basic plan
             try:
                 fallback_plan = await self._generate_fallback_plan(mission, active_constraints)
@@ -301,7 +319,8 @@ class SwarmCoordinator:
             }
             
         except Exception as e:
-            self.health_monitor.record_error("encoding", f"Latent encoding failed: {e}")
+            if self.health_monitor:
+                self.health_monitor.record_error("encoding", f"Latent encoding failed: {e}")
             self.logger.error(f"Failed to encode plan to latent space: {e}")
             raise ValueError(f"Plan encoding failed: {e}")
         
@@ -556,7 +575,8 @@ class SwarmCoordinator:
                     else:
                         callback(data)
                 except Exception as e:
-                    self.health_monitor.record_error("callback", f"Callback error for {event}: {e}")
+                    if self.health_monitor:
+                        self.health_monitor.record_error("callback", f"Callback error for {event}: {e}")
                     self.logger.error(f"Callback error for {event}: {e}")
 
     def _get_recent_latency(self) -> float:
@@ -1009,3 +1029,485 @@ class SwarmCoordinator:
             audit_results["error"] = str(e)
             audit_results["risk_level"] = "UNKNOWN"
             return audit_results
+    
+    # ============== GENERATION 3 ENHANCEMENTS ==============
+    
+    async def initialize_generation3_systems(self):
+        """Initialize Generation 3 performance optimization systems."""
+        try:
+            # Initialize AI performance optimizer
+            self.ai_optimizer = get_ai_optimizer()
+            self.logger.info("Initialized AI performance optimizer")
+            
+            # Initialize service mesh
+            self.service_mesh = await get_service_mesh()
+            self.logger.info("Initialized service mesh coordinator")
+            
+            # Initialize cost optimizer
+            self.cost_optimizer = get_cost_optimizer()
+            self.logger.info("Initialized ML cost optimizer")
+            
+            # Initialize multi-tier cache
+            self.multi_cache = await get_multi_tier_cache()
+            self.logger.info("Initialized multi-tier cache system")
+            
+            # Initialize high-performance communicator
+            self.hp_communicator = await get_hp_communicator()
+            self.logger.info("Initialized high-performance communication layer")
+            
+            # Start Generation 3 background tasks
+            self._gen3_tasks = [
+                asyncio.create_task(self._gen3_performance_optimization_loop()),
+                asyncio.create_task(self._gen3_cost_monitoring_loop()),
+                asyncio.create_task(self._gen3_service_mesh_management()),
+            ]
+            
+            self.logger.info("Generation 3 systems fully initialized")
+            
+        except Exception as e:
+            self.logger.error(f"Error initializing Generation 3 systems: {e}")
+    
+    async def _gen3_performance_optimization_loop(self):
+        """Generation 3 AI-powered performance optimization loop."""
+        while self._running:
+            try:
+                # Collect current performance metrics
+                current_metrics = await self._collect_generation3_metrics()
+                
+                # Record metrics for AI optimization
+                record_performance_metrics(
+                    latency_ms=current_metrics.get("avg_latency_ms", 0),
+                    throughput_rps=current_metrics.get("throughput_rps", 0),
+                    cpu_usage_percent=current_metrics.get("cpu_usage", 0),
+                    memory_usage_mb=current_metrics.get("memory_usage_mb", 0),
+                    error_rate=current_metrics.get("error_rate", 0),
+                    cache_hit_rate=current_metrics.get("cache_hit_rate", 0),
+                )
+                
+                # Get AI optimization suggestions
+                ai_optimizer = get_ai_optimizer()
+                optimization_action = await ai_optimizer.suggest_optimization()
+                
+                if optimization_action and optimization_action.confidence > 0.7:
+                    await ai_optimizer._apply_optimization(optimization_action)
+                    self.logger.info(f"Applied AI optimization: {optimization_action.action_type}")
+                
+                await asyncio.sleep(120)  # Run every 2 minutes
+                
+            except Exception as e:
+                self.logger.error(f"Generation 3 performance optimization error: {e}")
+                await asyncio.sleep(120)
+    
+    async def _gen3_cost_monitoring_loop(self):
+        """Generation 3 cost optimization monitoring loop."""
+        while self._running:
+            try:
+                # Collect cost metrics
+                current_load = {
+                    "cpu_usage": await self._get_cpu_usage(),
+                    "memory_usage": await self._get_memory_usage(),
+                    "response_time": self._get_recent_latency(),
+                    "throughput": self.processed_tasks,
+                }
+                
+                # Record cost metrics
+                record_cost_metrics(
+                    current_cost=self._calculate_current_operational_cost(),
+                    instance_counts={"on_demand": 1},  # Simplified
+                    performance_metrics=current_load,
+                )
+                
+                # Get cost optimization recommendation
+                cost_optimizer = get_cost_optimizer()
+                recommendation = await cost_optimizer.predict_optimal_scaling(current_load, current_load)
+                
+                if recommendation.predicted_cost_savings > 0.1:  # >$0.10/hour savings
+                    await cost_optimizer.execute_cost_optimization(recommendation)
+                    self.logger.info(f"Applied cost optimization: {recommendation.action}")
+                
+                await asyncio.sleep(300)  # Run every 5 minutes
+                
+            except Exception as e:
+                self.logger.error(f"Generation 3 cost monitoring error: {e}")
+                await asyncio.sleep(300)
+    
+    async def _gen3_service_mesh_management(self):
+        """Generation 3 service mesh management loop."""
+        while self._running:
+            try:
+                # Register coordinator as a service
+                service_mesh = await get_service_mesh()
+                
+                # Auto-scale services based on load
+                mesh_stats = service_mesh.get_mesh_status()
+                
+                if mesh_stats["active_requests"] > mesh_stats["max_concurrent_requests"] * 0.8:
+                    # Scale up planning services
+                    await service_mesh.scale_service_type(ServiceType.PLANNER, 3)
+                elif mesh_stats["active_requests"] < mesh_stats["max_concurrent_requests"] * 0.3:
+                    # Scale down planning services
+                    await service_mesh.scale_service_type(ServiceType.PLANNER, 1)
+                
+                await asyncio.sleep(180)  # Run every 3 minutes
+                
+            except Exception as e:
+                self.logger.error(f"Generation 3 service mesh management error: {e}")
+                await asyncio.sleep(180)
+    
+    async def generate_plan_generation3(
+        self,
+        mission: str,
+        constraints: Optional[MissionConstraints] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Enhanced plan generation with Generation 3 optimizations."""
+        start_time = time.time()
+        
+        try:
+            # Try cache first
+            cache_key = f"plan:{hashlib.md5(f'{mission}:{json.dumps(context or {}, sort_keys=True)}'.encode()).hexdigest()}"
+            cached_plan = await cached_get(cache_key)
+            
+            if cached_plan:
+                self.logger.info("Retrieved plan from cache")
+                return cached_plan
+            
+            # Use service mesh for distributed planning
+            service_mesh = await get_service_mesh()
+            
+            planning_request = {
+                "mission": mission,
+                "constraints": constraints.__dict__ if constraints else None,
+                "context": context or {},
+                "fleet_size": self.swarm_state.num_active_drones,
+            }
+            
+            # Route request through service mesh
+            response = await route_service_request(
+                source_service="swarm_coordinator",
+                target_service_type=ServiceType.PLANNER,
+                method="generate_plan",
+                payload=planning_request,
+                timeout_seconds=30.0,
+            )
+            
+            if response.status_code == 200:
+                plan = response.payload
+                
+                # Cache successful plan
+                await cached_put(cache_key, plan, ttl_l1=300.0, ttl_l2=1800.0)
+                
+                # Record performance
+                planning_latency = (time.time() - start_time) * 1000
+                record_performance_metrics(latency_ms=planning_latency)
+                
+                return plan
+            else:
+                # Fallback to original method
+                return await self.generate_plan(mission, constraints, context)
+                
+        except Exception as e:
+            self.logger.error(f"Generation 3 plan generation error: {e}")
+            # Fallback to original method
+            return await self.generate_plan(mission, constraints, context)
+    
+    async def execute_mission_generation3(
+        self,
+        latent_plan: Dict[str, Any],
+        monitor_frequency: float = 10.0,
+        replan_threshold: float = 0.7,
+    ) -> bool:
+        """Enhanced mission execution with Generation 3 optimizations."""
+        if not self.fleet:
+            raise RuntimeError("No fleet connected")
+        
+        try:
+            # Use high-performance communication for drone coordination
+            hp_comm = await get_hp_communicator()
+            
+            # Prepare drone destinations
+            drone_destinations = [f"ws://drone_{drone_id}:8080/command" 
+                                for drone_id in self.fleet.get_active_drones()]
+            
+            # Broadcast mission using high-performance communication
+            broadcast_result = await hp_comm.broadcast_message(
+                destinations=drone_destinations,
+                payload={
+                    "mission_plan": latent_plan,
+                    "execution_mode": "generation3",
+                    "performance_optimized": True,
+                },
+                priority=Priority.HIGH,
+                max_concurrent=min(100, len(drone_destinations)),
+            )
+            
+            if broadcast_result["success_rate"] < 0.8:
+                self.logger.warning(f"Low broadcast success rate: {broadcast_result['success_rate']:.2f}")
+            
+            # Enhanced monitoring with AI optimization
+            self.mission_status = MissionStatus.EXECUTING
+            self.current_mission = latent_plan['description']
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Generation 3 mission execution error: {e}")
+            # Fallback to original method
+            return await self.execute_mission(latent_plan, monitor_frequency, replan_threshold)
+    
+    async def _collect_generation3_metrics(self) -> Dict[str, Any]:
+        """Collect comprehensive Generation 3 performance metrics."""
+        try:
+            metrics = {}
+            
+            # Basic performance metrics
+            if self.performance_history:
+                recent_latencies = [entry.get('latency_ms', 0) for entry in self.context_history[-10:]]
+                metrics["avg_latency_ms"] = statistics.mean(recent_latencies) if recent_latencies else 0
+            else:
+                metrics["avg_latency_ms"] = 0
+            
+            # System metrics
+            try:
+                import psutil
+                metrics["cpu_usage"] = psutil.cpu_percent()
+                memory = psutil.virtual_memory()
+                metrics["memory_usage_mb"] = memory.used / (1024 * 1024)
+            except ImportError:
+                metrics["cpu_usage"] = 50.0  # Default
+                metrics["memory_usage_mb"] = 1024.0  # Default
+            
+            # Fleet metrics
+            if self.fleet:
+                metrics["active_drones"] = len(self.fleet.get_active_drones())
+                metrics["total_drones"] = len(self.fleet.drone_ids)
+                metrics["fleet_utilization"] = metrics["active_drones"] / max(1, metrics["total_drones"])
+            
+            # Communication metrics
+            if hasattr(self, 'hp_communicator') and self.hp_communicator:
+                comm_stats = self.hp_communicator.get_comprehensive_stats()
+                metrics["throughput_rps"] = comm_stats.get("messages_per_second", 0)
+                metrics["connection_utilization"] = comm_stats.get("connection_utilization", 0)
+            
+            # Cache metrics
+            if hasattr(self, 'multi_cache') and self.multi_cache:
+                cache_stats = self.multi_cache.get_comprehensive_stats()
+                metrics["cache_hit_rate"] = cache_stats.get("overall_hit_rate", 0)
+            
+            # Error rate
+            total_operations = len(self.context_history)
+            errors = sum(1 for entry in self.context_history if entry.get("error", False))
+            metrics["error_rate"] = errors / max(1, total_operations)
+            
+            return metrics
+            
+        except Exception as e:
+            self.logger.error(f"Error collecting Generation 3 metrics: {e}")
+            return {}
+    
+    async def _get_cpu_usage(self) -> float:
+        """Get current CPU usage."""
+        try:
+            import psutil
+            return psutil.cpu_percent()
+        except ImportError:
+            return 50.0  # Default
+    
+    async def _get_memory_usage(self) -> float:
+        """Get current memory usage in MB."""
+        try:
+            import psutil
+            return psutil.virtual_memory().used / (1024 * 1024)
+        except ImportError:
+            return 1024.0  # Default
+    
+    def _calculate_current_operational_cost(self) -> float:
+        """Calculate current operational cost per hour."""
+        # Simplified cost calculation
+        base_cost = 0.10  # Base infrastructure cost
+        
+        if self.fleet:
+            # Scale cost with fleet size
+            drone_count = len(self.fleet.drone_ids)
+            drone_cost = drone_count * 0.01  # $0.01 per drone per hour
+            base_cost += drone_cost
+        
+        # Add compute cost based on performance
+        if hasattr(self, '_current_cpu_usage'):
+            compute_cost = (self._current_cpu_usage / 100.0) * 0.05
+            base_cost += compute_cost
+        
+        return base_cost
+    
+    def get_generation3_comprehensive_stats(self) -> Dict[str, Any]:
+        """Get comprehensive Generation 3 statistics."""
+        base_stats = self.get_comprehensive_stats()
+        
+        # Add Generation 3 specific stats
+        gen3_stats = {
+            "generation": 3,
+            "optimizations_enabled": {
+                "ai_performance_optimizer": hasattr(self, 'ai_optimizer'),
+                "service_mesh": hasattr(self, 'service_mesh'),
+                "cost_optimizer": hasattr(self, 'cost_optimizer'),
+                "multi_tier_cache": hasattr(self, 'multi_cache'),
+                "hp_communication": hasattr(self, 'hp_communicator'),
+            },
+        }
+        
+        # AI optimizer stats
+        if hasattr(self, 'ai_optimizer'):
+            ai_stats = self.ai_optimizer.get_optimization_stats()
+            gen3_stats["ai_optimization"] = ai_stats
+        
+        # Service mesh stats
+        if hasattr(self, 'service_mesh'):
+            mesh_stats = self.service_mesh.get_mesh_status()
+            gen3_stats["service_mesh"] = mesh_stats
+        
+        # Cost optimizer stats
+        if hasattr(self, 'cost_optimizer'):
+            cost_stats = self.cost_optimizer.get_optimization_stats()
+            gen3_stats["cost_optimization"] = cost_stats
+        
+        # Cache stats
+        if hasattr(self, 'multi_cache'):
+            cache_stats = self.multi_cache.get_comprehensive_stats()
+            gen3_stats["multi_tier_cache"] = cache_stats
+        
+        # Communication stats
+        if hasattr(self, 'hp_communicator'):
+            comm_stats = self.hp_communicator.get_comprehensive_stats()
+            gen3_stats["high_performance_communication"] = comm_stats
+        
+        # Combine with base stats
+        return {**base_stats, "generation3": gen3_stats}
+    
+    async def benchmark_generation3_performance(
+        self,
+        test_scenarios: List[Dict[str, Any]],
+        duration_seconds: int = 300,
+    ) -> Dict[str, Any]:
+        """Benchmark Generation 3 performance improvements."""
+        self.logger.info(f"Starting Generation 3 performance benchmark for {duration_seconds}s")
+        
+        benchmark_results = {
+            "test_duration": duration_seconds,
+            "scenarios_tested": len(test_scenarios),
+            "results": [],
+            "summary": {},
+        }
+        
+        try:
+            start_time = time.time()
+            
+            for i, scenario in enumerate(test_scenarios):
+                scenario_start = time.time()
+                scenario_result = {
+                    "scenario_id": i,
+                    "scenario_type": scenario.get("type", "unknown"),
+                    "start_time": scenario_start,
+                }
+                
+                try:
+                    # Execute scenario based on type
+                    if scenario["type"] == "mission_planning":
+                        result = await self.generate_plan_generation3(
+                            scenario["mission"],
+                            context=scenario.get("context", {})
+                        )
+                        scenario_result["success"] = "error" not in result
+                        scenario_result["latency_ms"] = (time.time() - scenario_start) * 1000
+                        
+                    elif scenario["type"] == "fleet_coordination":
+                        # Simulate fleet coordination
+                        if self.fleet:
+                            result = await self.execute_mission_generation3({
+                                "mission_id": f"benchmark_{i}",
+                                "description": scenario["mission"],
+                                "latent_code": [1, 2, 3],  # Mock
+                            })
+                            scenario_result["success"] = result
+                            scenario_result["latency_ms"] = (time.time() - scenario_start) * 1000
+                        else:
+                            scenario_result["success"] = False
+                            scenario_result["error"] = "No fleet connected"
+                    
+                    elif scenario["type"] == "cache_performance":
+                        # Test cache performance
+                        cache_key = f"benchmark_key_{i}"
+                        test_data = {"benchmark": True, "data": list(range(100))}
+                        
+                        # Put and get from cache
+                        await cached_put(cache_key, test_data)
+                        retrieved = await cached_get(cache_key)
+                        
+                        scenario_result["success"] = retrieved is not None
+                        scenario_result["latency_ms"] = (time.time() - scenario_start) * 1000
+                    
+                    else:
+                        scenario_result["success"] = False
+                        scenario_result["error"] = f"Unknown scenario type: {scenario['type']}"
+                    
+                except Exception as e:
+                    scenario_result["success"] = False
+                    scenario_result["error"] = str(e)
+                    scenario_result["latency_ms"] = (time.time() - scenario_start) * 1000
+                
+                benchmark_results["results"].append(scenario_result)
+                
+                # Check if we've exceeded duration
+                if time.time() - start_time > duration_seconds:
+                    break
+            
+            # Calculate summary statistics
+            successful_tests = sum(1 for r in benchmark_results["results"] if r.get("success"))
+            total_tests = len(benchmark_results["results"])
+            
+            latencies = [r.get("latency_ms", 0) for r in benchmark_results["results"] 
+                        if r.get("success") and "latency_ms" in r]
+            
+            benchmark_results["summary"] = {
+                "success_rate": successful_tests / max(1, total_tests),
+                "total_tests": total_tests,
+                "successful_tests": successful_tests,
+                "failed_tests": total_tests - successful_tests,
+                "avg_latency_ms": statistics.mean(latencies) if latencies else 0,
+                "p95_latency_ms": statistics.quantiles(latencies, n=20)[18] if len(latencies) > 20 else 0,
+                "p99_latency_ms": statistics.quantiles(latencies, n=100)[98] if len(latencies) > 100 else 0,
+                "throughput_rps": successful_tests / max(1, duration_seconds),
+            }
+            
+            self.logger.info(f"Benchmark completed: {benchmark_results['summary']['success_rate']:.2%} success rate, "
+                           f"{benchmark_results['summary']['avg_latency_ms']:.1f}ms avg latency")
+            
+            return benchmark_results
+            
+        except Exception as e:
+            self.logger.error(f"Benchmark error: {e}")
+            benchmark_results["error"] = str(e)
+            return benchmark_results
+    
+    async def shutdown_generation3_systems(self):
+        """Shutdown Generation 3 systems gracefully."""
+        try:
+            # Cancel Generation 3 background tasks
+            if hasattr(self, '_gen3_tasks'):
+                for task in self._gen3_tasks:
+                    task.cancel()
+                await asyncio.gather(*self._gen3_tasks, return_exceptions=True)
+            
+            # Shutdown components
+            if hasattr(self, 'hp_communicator') and self.hp_communicator:
+                await self.hp_communicator.stop()
+            
+            if hasattr(self, 'service_mesh') and self.service_mesh:
+                await self.service_mesh.stop()
+            
+            if hasattr(self, 'multi_cache') and self.multi_cache:
+                await self.multi_cache.stop()
+            
+            self.logger.info("Generation 3 systems shutdown completed")
+            
+        except Exception as e:
+            self.logger.error(f"Error shutting down Generation 3 systems: {e}")

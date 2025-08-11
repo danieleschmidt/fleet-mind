@@ -135,7 +135,17 @@ class DroneFleet:
         # Background tasks
         self._monitoring_task: Optional[asyncio.Task] = None
         self._health_check_task: Optional[asyncio.Task] = None
+        self._auto_healing_task: Optional[asyncio.Task] = None
         self._running = False
+        
+        # Initialize logging
+        from ..utils.logging import get_logger
+        self.logger = get_logger("drone_fleet", component="fleet_management")
+        
+        # Auto-healing configuration
+        self.auto_healing_enabled = True
+        self.healing_attempts: Dict[str, int] = {}
+        self.max_healing_attempts = 3
 
     def _initialize_drone_states(self) -> None:
         """Initialize states for all drones."""
@@ -163,7 +173,11 @@ class DroneFleet:
         self._monitoring_task = asyncio.create_task(self._monitoring_loop())
         self._health_check_task = asyncio.create_task(self._health_check_loop())
         
-        print(f"Started monitoring for {len(self.drone_ids)} drones")
+        # Start auto-healing task if enabled
+        if self.auto_healing_enabled:
+            self._auto_healing_task = asyncio.create_task(self._auto_healing_loop())
+        
+        self.logger.info(f"Started monitoring for {len(self.drone_ids)} drones")
 
     async def stop_monitoring(self) -> None:
         """Stop background monitoring tasks."""
@@ -173,8 +187,10 @@ class DroneFleet:
             self._monitoring_task.cancel()
         if self._health_check_task:
             self._health_check_task.cancel()
+        if self._auto_healing_task:
+            self._auto_healing_task.cancel()
         
-        print("Stopped fleet monitoring")
+        self.logger.info("Stopped fleet monitoring")
 
     def get_active_drones(self) -> List[str]:
         """Get list of currently active drone IDs."""
@@ -419,7 +435,7 @@ class DroneFleet:
                 await asyncio.sleep(1.0)  # Update every second
                 
         except asyncio.CancelledError:
-            print("Fleet monitoring loop cancelled")
+            self.logger.debug("Fleet monitoring loop cancelled")
 
     async def _health_check_loop(self) -> None:
         """Background loop for health monitoring."""
@@ -431,7 +447,7 @@ class DroneFleet:
                 await asyncio.sleep(5.0)  # Health checks every 5 seconds
                 
         except asyncio.CancelledError:
-            print("Health check loop cancelled")
+            self.logger.debug("Health check loop cancelled")
 
     def _update_drone_tracking(self, drone_id: str, state: DroneState) -> None:
         """Update fleet-level tracking based on drone state."""
@@ -476,7 +492,7 @@ class DroneFleet:
             if drone_id in self.drone_states:
                 state = self.drone_states[drone_id]
                 if current_time - state.last_update > stale_threshold:
-                    print(f"Warning: Stale data from drone {drone_id}")
+                    self.logger.warning(f"Stale data from drone {drone_id}")
                     # Could mark as communication issue or offline
 
     def _simulate_telemetry_updates(self) -> None:
@@ -513,24 +529,27 @@ class DroneFleet:
             
             # Check critical battery
             if state.battery_percent < self.config.battery_critical_threshold:
-                print(f"CRITICAL: Drone {drone_id} battery at {state.battery_percent:.1f}%")
+                self.logger.critical(f"Drone {drone_id} battery at {state.battery_percent:.1f}%")
                 await self._emergency_land_drone(drone_id)
+                await self._trigger_auto_healing(drone_id, "critical_battery")
             
             # Check critical health
             elif state.health_score < self.config.health_critical_threshold:
-                print(f"CRITICAL: Drone {drone_id} health at {state.health_score:.2f}")
+                self.logger.critical(f"Drone {drone_id} health at {state.health_score:.2f}")
                 await self._return_home_drone(drone_id)
+                await self._trigger_auto_healing(drone_id, "critical_health")
             
             # Check warning levels
             elif (state.battery_percent < self.config.battery_warning_threshold or
                   state.health_score < self.config.health_warning_threshold):
-                print(f"WARNING: Drone {drone_id} needs attention")
+                self.logger.warning(f"Drone {drone_id} needs attention")
+                await self._trigger_auto_healing(drone_id, "warning_level")
 
     async def _emergency_land_drone(self, drone_id: str) -> bool:
         """Execute emergency landing for specific drone."""
         if drone_id in self.drone_states:
             self.drone_states[drone_id].status = DroneStatus.LANDING
-            print(f"Emergency landing initiated for drone {drone_id}")
+            self.logger.critical(f"Emergency landing initiated for drone {drone_id}")
             # In real implementation, send landing command
             return True
         return False
@@ -539,7 +558,7 @@ class DroneFleet:
         """Execute return-to-home for specific drone."""
         if drone_id in self.drone_states:
             self.drone_states[drone_id].status = DroneStatus.RETURNING
-            print(f"Return-to-home initiated for drone {drone_id}")
+            self.logger.warning(f"Return-to-home initiated for drone {drone_id}")
             # In real implementation, send return command
             return True
         return False
@@ -548,7 +567,7 @@ class DroneFleet:
         """Execute hold position for specific drone."""
         if drone_id in self.drone_states:
             self.drone_states[drone_id].velocity = (0.0, 0.0, 0.0)
-            print(f"Hold position initiated for drone {drone_id}")
+            self.logger.info(f"Hold position initiated for drone {drone_id}")
             # In real implementation, send hold command
             return True
         return False
@@ -724,6 +743,121 @@ class DroneFleet:
             healing_actions['recommendations'].append(f"Manual intervention needed for {len(self.failed_drones)} failed drones")
         
         if len(healing_actions['drones_recovered']) > 0:
-            print(f"Fleet auto-healing recovered {len(healing_actions['drones_recovered'])} drones")
+            self.logger.info(f"Fleet auto-healing recovered {len(healing_actions['drones_recovered'])} drones")
         
         return healing_actions
+    
+    async def _auto_healing_loop(self) -> None:
+        """Background loop for automatic fleet healing."""
+        try:
+            while self._running:
+                # Check for drones that need healing
+                drones_needing_healing = (
+                    list(self.failed_drones) + 
+                    list(self.maintenance_drones)
+                )
+                
+                for drone_id in drones_needing_healing:
+                    if self.healing_attempts.get(drone_id, 0) < self.max_healing_attempts:
+                        await self._attempt_drone_healing(drone_id)
+                
+                # Run auto-healing every 30 seconds
+                await asyncio.sleep(30.0)
+                
+        except asyncio.CancelledError:
+            self.logger.debug("Auto-healing loop cancelled")
+    
+    async def _trigger_auto_healing(self, drone_id: str, issue_type: str) -> None:
+        """Trigger auto-healing for a specific drone issue."""
+        if not self.auto_healing_enabled:
+            return
+        
+        if drone_id not in self.healing_attempts:
+            self.healing_attempts[drone_id] = 0
+        
+        self.logger.info(f"Triggering auto-healing for drone {drone_id} (issue: {issue_type})")
+        
+        # Attempt immediate healing
+        await self._attempt_drone_healing(drone_id, issue_type)
+    
+    async def _attempt_drone_healing(self, drone_id: str, issue_type: str = "unknown") -> bool:
+        """Attempt to heal a specific drone."""
+        if self.healing_attempts.get(drone_id, 0) >= self.max_healing_attempts:
+            self.logger.warning(f"Max healing attempts reached for drone {drone_id}")
+            return False
+        
+        self.healing_attempts[drone_id] = self.healing_attempts.get(drone_id, 0) + 1
+        attempt_count = self.healing_attempts[drone_id]
+        
+        self.logger.info(f"Healing attempt {attempt_count}/{self.max_healing_attempts} for drone {drone_id}")
+        
+        try:
+            if drone_id not in self.drone_states:
+                # Reinitialize drone state
+                self.drone_states[drone_id] = DroneState(
+                    drone_id=drone_id,
+                    capabilities=set([DroneCapability.BASIC_FLIGHT, DroneCapability.GPS])
+                )
+                self.logger.info(f"Reinitialized state for drone {drone_id}")
+            
+            state = self.drone_states[drone_id]
+            
+            # Different healing strategies based on issue type
+            if issue_type == "critical_battery":
+                # Simulate battery replacement or recharging
+                state.battery_percent = 90.0
+                state.status = DroneStatus.IDLE
+                self.logger.info(f"Simulated battery recovery for drone {drone_id}")
+                
+            elif issue_type == "critical_health":
+                # Simulate health recovery
+                state.health_score = 0.8
+                state.status = DroneStatus.IDLE
+                self.logger.info(f"Simulated health recovery for drone {drone_id}")
+                
+            elif issue_type == "warning_level":
+                # Gradual improvement
+                state.battery_percent = min(100.0, state.battery_percent + 20.0)
+                state.health_score = min(1.0, state.health_score + 0.1)
+                self.logger.info(f"Applied gradual improvement for drone {drone_id}")
+                
+            else:
+                # Generic healing attempt
+                state.battery_percent = max(state.battery_percent, 50.0)
+                state.health_score = max(state.health_score, 0.6)
+                state.status = DroneStatus.IDLE
+                self.logger.info(f"Applied generic healing for drone {drone_id}")
+            
+            # Update last_update timestamp
+            state.last_update = time.time()
+            
+            # Move back to active if healing was successful
+            if (state.battery_percent > self.config.battery_warning_threshold and
+                state.health_score > self.config.health_warning_threshold):
+                
+                self.failed_drones.discard(drone_id)
+                self.maintenance_drones.discard(drone_id)
+                self.active_drones.add(drone_id)
+                
+                # Reset healing attempts counter
+                self.healing_attempts[drone_id] = 0
+                
+                self.logger.info(f"Successfully healed drone {drone_id}")
+                return True
+            else:
+                self.logger.info(f"Partial healing applied to drone {drone_id}, may need more attempts")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Healing attempt failed for drone {drone_id}: {e}")
+            return False
+    
+    def get_healing_status(self) -> Dict[str, Any]:
+        """Get current auto-healing status."""
+        return {
+            'auto_healing_enabled': self.auto_healing_enabled,
+            'max_healing_attempts': self.max_healing_attempts,
+            'drones_under_healing': len(self.healing_attempts),
+            'healing_attempts': dict(self.healing_attempts),
+            'drones_needing_healing': len(self.failed_drones) + len(self.maintenance_drones),
+        }

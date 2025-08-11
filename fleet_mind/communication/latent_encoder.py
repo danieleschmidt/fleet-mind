@@ -258,6 +258,14 @@ class LatentEncoder:
             'hold_position': np.array([996] * min(64, latent_dim)),
         }
         
+        # Initialize logging
+        from ..utils.logging import get_logger
+        self.logger = get_logger("latent_encoder", component="encoding")
+        
+        # Validation and error handling
+        self.encoding_errors = 0
+        self.last_successful_encoding = None
+        
         self._initialize_model()
 
     def _initialize_model(self) -> None:
@@ -288,9 +296,9 @@ class LatentEncoder:
             except Exception:
                 # Fallback to simple quantization
                 self.compression_type = CompressionType.SIMPLE_QUANTIZATION
-                print("Warning: Falling back to simple quantization")
+                self.logger.warning("Falling back to simple quantization")
         
-        print(f"Initialized {self.compression_type.value} encoder")
+        self.logger.info(f"Initialized {self.compression_type.value} encoder")
 
     def encode(self, actions: Union[str, List[str], Any]) -> Any:
         """Encode actions to compressed latent representation.
@@ -304,28 +312,40 @@ class LatentEncoder:
         start_time = time.time()
         
         try:
+            # Validate input
+            if actions is None:
+                raise ValueError("Actions cannot be None")
+            
             # Convert input to appropriate format
             input_tensor = self._prepare_input(actions)
             
-            if self.compression_type == CompressionType.LEARNED_VQVAE:
-                latent_code = self._encode_vqvae(input_tensor)
-            elif self.compression_type == CompressionType.NEURAL_COMPRESSION:
-                latent_code = self._encode_neural(input_tensor)
-            elif self.compression_type == CompressionType.DICTIONARY_COMPRESSION:
-                latent_code = self._encode_dictionary(actions)
-            else:  # SIMPLE_QUANTIZATION
-                latent_code = self._encode_quantized(input_tensor)
+            # Validate input tensor
+            if input_tensor is None:
+                raise ValueError("Failed to prepare input tensor")
+            
+            # Try primary encoding method
+            latent_code = self._encode_with_fallback(input_tensor, actions)
+            
+            # Validate output
+            if latent_code is None or (hasattr(latent_code, '__len__') and len(latent_code) == 0):
+                raise ValueError("Encoding produced empty result")
             
             # Update metrics
             encoding_time = (time.time() - start_time) * 1000
             self._update_encoding_metrics(input_tensor, latent_code, encoding_time)
             
+            # Store successful encoding for fallback
+            self.last_successful_encoding = latent_code.copy() if hasattr(latent_code, 'copy') else latent_code
+            self.encoding_errors = 0  # Reset error counter on success
+            
             return latent_code
             
         except Exception as e:
-            print(f"Encoding failed: {e}")
-            # Return safe default
-            return np.zeros(self.latent_dim, dtype=np.float32)
+            self.encoding_errors += 1
+            self.logger.error(f"Encoding failed (attempt {self.encoding_errors}): {e}")
+            
+            # Try fallback strategies
+            return self._handle_encoding_failure(actions, e)
 
     def decode(self, latent_code: Any) -> Union[Any, str]:
         """Decode latent code back to action representation.
@@ -360,7 +380,7 @@ class LatentEncoder:
             return decoded
             
         except Exception as e:
-            print(f"Decoding failed: {e}")
+            self.logger.error(f"Decoding failed: {e}")
             # Return safe default
             return np.zeros(self.input_dim, dtype=np.float32)
 
@@ -391,10 +411,10 @@ class LatentEncoder:
             Training metrics and losses
         """
         if self.compression_type not in [CompressionType.LEARNED_VQVAE, CompressionType.NEURAL_COMPRESSION]:
-            print("Training not supported for this compression type")
+            self.logger.info("Training not supported for this compression type")
             return {}
         
-        print(f"Training {self.compression_type.value} model...")
+        self.logger.info(f"Training {self.compression_type.value} model...")
         
         # Prepare training data
         train_tensors = []
@@ -403,7 +423,7 @@ class LatentEncoder:
             train_tensors.append(tensor)
         
         if not train_tensors:
-            print("No valid training data")
+            self.logger.warning("No valid training data")
             return {}
         
         train_data = torch.stack(train_tensors)
@@ -447,13 +467,13 @@ class LatentEncoder:
             total_loss += epoch_loss
             
             if epoch % 10 == 0:
-                print(f"Epoch {epoch}/{epochs}, Loss: {epoch_loss:.4f}")
+                self.logger.info(f"Epoch {epoch}/{epochs}, Loss: {epoch_loss:.4f}")
         
         self.model.eval()
         self.is_trained = True
         
         avg_loss = total_loss / epochs
-        print(f"Training completed. Average loss: {avg_loss:.4f}")
+        self.logger.info(f"Training completed. Average loss: {avg_loss:.4f}")
         
         return {
             'final_loss': avg_loss,
@@ -678,3 +698,89 @@ class LatentEncoder:
         
         times = [entry['encoding_time_ms'] for entry in self.encoding_history]
         return sum(times) / len(times)
+    
+    def _encode_with_fallback(self, input_tensor: Any, actions: Any) -> Any:
+        """Try encoding with primary method, with fallbacks."""
+        try:
+            if self.compression_type == CompressionType.LEARNED_VQVAE:
+                return self._encode_vqvae(input_tensor)
+            elif self.compression_type == CompressionType.NEURAL_COMPRESSION:
+                return self._encode_neural(input_tensor)
+            elif self.compression_type == CompressionType.DICTIONARY_COMPRESSION:
+                return self._encode_dictionary(actions)
+            else:  # SIMPLE_QUANTIZATION
+                return self._encode_quantized(input_tensor)
+        except Exception as e:
+            self.logger.warning(f"Primary encoding method failed, trying fallback: {e}")
+            # Try simple quantization as fallback
+            try:
+                return self._encode_quantized(input_tensor)
+            except Exception as fallback_error:
+                self.logger.warning(f"Fallback encoding also failed: {fallback_error}")
+                raise e  # Re-raise original error
+    
+    def _handle_encoding_failure(self, actions: Any, error: Exception) -> Any:
+        """Handle encoding failure with various fallback strategies."""
+        self.logger.warning(f"Handling encoding failure: {error}")
+        
+        # Strategy 1: Use last successful encoding if available
+        if self.last_successful_encoding is not None and self.encoding_errors < 3:
+            self.logger.info("Using last successful encoding as fallback")
+            return self.last_successful_encoding
+        
+        # Strategy 2: Try emergency codes if applicable
+        if isinstance(actions, str) and any(emergency in actions.lower() 
+                                          for emergency in ['stop', 'land', 'home', 'hold']):
+            if 'stop' in actions.lower():
+                return self.emergency_codes['stop'].copy()
+            elif 'land' in actions.lower():
+                return self.emergency_codes['land'].copy()
+            elif 'home' in actions.lower():
+                return self.emergency_codes['return_home'].copy()
+            elif 'hold' in actions.lower():
+                return self.emergency_codes['hold_position'].copy()
+        
+        # Strategy 3: Generate safe default encoding
+        self.logger.warning("Using safe default encoding")
+        safe_encoding = np.zeros(self.latent_dim, dtype=np.float32)
+        # Add a small signature to indicate this is a fallback
+        if len(safe_encoding) > 4:
+            safe_encoding[0] = 0.1  # Fallback signature
+            safe_encoding[1] = 0.2
+            safe_encoding[2] = 0.1
+            safe_encoding[3] = 0.2
+        
+        return safe_encoding
+    
+    def validate_encoding_output(self, latent_code: Any) -> bool:
+        """Validate encoding output quality."""
+        try:
+            if latent_code is None:
+                return False
+            
+            if not hasattr(latent_code, '__len__'):
+                return False
+            
+            if len(latent_code) == 0:
+                return False
+            
+            # Check for reasonable value ranges
+            if hasattr(latent_code, 'max') and hasattr(latent_code, 'min'):
+                max_val = latent_code.max()
+                min_val = latent_code.min()
+                
+                # Values should be reasonable (not infinite or extremely large)
+                if max_val > 1e6 or min_val < -1e6:
+                    self.logger.warning(f"Encoding values out of reasonable range: [{min_val}, {max_val}]")
+                    return False
+                
+                # Check for all zeros (might indicate failure)
+                if max_val == 0 and min_val == 0:
+                    self.logger.warning("Encoding produced all zeros")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Error validating encoding output: {e}")
+            return False

@@ -173,6 +173,16 @@ class WebRTCStreamer:
         self.signaling_server: Optional[TcpSocketSignaling] = None
         self._sender_task: Optional[asyncio.Task] = None
         self._metrics_task: Optional[asyncio.Task] = None
+        self._reconnection_task: Optional[asyncio.Task] = None
+        
+        # Connection resilience
+        self.max_reconnection_attempts = 5
+        self.reconnection_delay = 2.0
+        self.failed_drones: set = set()
+        
+        # Initialize logging
+        from ..utils.logging import get_logger
+        self.logger = get_logger("webrtc_streamer", component="communication")
 
     async def initialize(self, drone_ids: List[str]) -> None:
         """Initialize WebRTC connections to drone fleet.
@@ -189,16 +199,16 @@ class WebRTCStreamer:
                 raise ValueError(f"Too many drones: {len(drone_ids)} > {self.config.max_connections}")
             
             if not AIORTC_AVAILABLE:
-                print("Warning: WebRTC not available, using mock connections for testing")
+                self.logger.warning("WebRTC not available, using mock connections for testing")
                 # Initialize mock connections for all drones
                 for drone_id in drone_ids:
                     self.active_drones.add(drone_id)
                     self.connection_metrics[drone_id] = ConnectionMetrics(last_update=time.time())
                 self.is_initialized = True
-                print(f"Mock WebRTC initialization complete: {len(drone_ids)} drones connected")
+                self.logger.info(f"Mock WebRTC initialization complete: {len(drone_ids)} drones connected")
                 return
             
-            print(f"Initializing WebRTC connections to {len(drone_ids)} drones...")
+            self.logger.info(f"Initializing WebRTC connections to {len(drone_ids)} drones...")
             
             # Start connection establishment
             connection_tasks = [
@@ -215,33 +225,37 @@ class WebRTCStreamer:
                 # Log any connection failures
                 for i, result in enumerate(results):
                     if isinstance(result, Exception):
-                        print(f"Warning: Failed to connect to {drone_ids[i]}: {result}")
+                        self.logger.warning(f"Failed to connect to {drone_ids[i]}: {result}")
+                        self.failed_drones.add(drone_ids[i])
                         
             except asyncio.TimeoutError:
-                print("Warning: Some connections timed out during initialization")
+                self.logger.warning("Some connections timed out during initialization")
             except Exception as e:
-                print(f"Error during connection initialization: {e}")
+                self.logger.error(f"Error during connection initialization: {e}")
                 # Continue with partial connections
             
             # Start background tasks
             try:
                 self._sender_task = asyncio.create_task(self._message_sender_loop())
                 self._metrics_task = asyncio.create_task(self._metrics_collection_loop())
+                # Start reconnection monitoring if we have failed drones
+                if self.failed_drones:
+                    self._reconnection_task = asyncio.create_task(self._reconnection_loop())
             except Exception as e:
-                print(f"Warning: Failed to start background tasks: {e}")
+                self.logger.warning(f"Failed to start background tasks: {e}")
             
             self.is_initialized = True
             connected_count = len(self.active_drones)
-            print(f"WebRTC initialization complete: {connected_count}/{len(drone_ids)} drones connected")
+            self.logger.info(f"WebRTC initialization complete: {connected_count}/{len(drone_ids)} drones connected")
             
         except Exception as e:
-            print(f"Critical error during WebRTC initialization: {e}")
+            self.logger.critical(f"Critical error during WebRTC initialization: {e}")
             # Set up minimal fallback state
             self.is_initialized = True
             for drone_id in drone_ids:
                 self.active_drones.add(drone_id)
                 self.connection_metrics[drone_id] = ConnectionMetrics(last_update=time.time())
-            print(f"Fallback initialization complete: {len(drone_ids)} drones in mock mode")
+            self.logger.info(f"Fallback initialization complete: {len(drone_ids)} drones in mock mode")
 
     async def broadcast(
         self,
@@ -345,6 +359,8 @@ class WebRTCStreamer:
             self._sender_task.cancel()
         if self._metrics_task:
             self._metrics_task.cancel()
+        if self._reconnection_task:
+            self._reconnection_task.cancel()
         
         # Close all peer connections
         for connection in self.connections.values():
@@ -354,9 +370,10 @@ class WebRTCStreamer:
         self.connections.clear()
         self.data_channels.clear()
         self.active_drones.clear()
+        self.failed_drones.clear()
         self.is_initialized = False
         
-        print("WebRTC streamer closed")
+        self.logger.info("WebRTC streamer closed")
 
     async def _establish_connection(self, drone_id: str) -> None:
         """Establish WebRTC connection to specific drone."""
@@ -374,12 +391,12 @@ class WebRTCStreamer:
             # Set up event handlers
             @data_channel.on("open")
             def on_open():
-                print(f"Data channel to drone {drone_id} opened")
+                self.logger.info(f"Data channel to drone {drone_id} opened")
                 self.active_drones.add(drone_id)
             
             @data_channel.on("close")
             def on_close():
-                print(f"Data channel to drone {drone_id} closed")
+                self.logger.info(f"Data channel to drone {drone_id} closed")
                 self.active_drones.discard(drone_id)
             
             @data_channel.on("message")
@@ -404,7 +421,8 @@ class WebRTCStreamer:
             await self._simulate_signaling(drone_id, connection)
             
         except Exception as e:
-            print(f"Failed to establish connection to drone {drone_id}: {e}")
+            self.logger.error(f"Failed to establish connection to drone {drone_id}: {e}")
+            self.failed_drones.add(drone_id)
 
     async def _simulate_signaling(self, drone_id: str, connection: RTCPeerConnection) -> None:
         """Simulate WebRTC signaling process (simplified for MVP)."""
@@ -425,7 +443,7 @@ class WebRTCStreamer:
             await connection.setRemoteDescription(answer)
             
         except Exception as e:
-            print(f"Signaling failed for drone {drone_id}: {e}")
+            self.logger.error(f"Signaling failed for drone {drone_id}: {e}")
 
     def _create_mock_answer(self, offer_sdp: str) -> str:
         """Create mock SDP answer for simulation."""
@@ -452,7 +470,7 @@ class WebRTCStreamer:
                 await asyncio.sleep(0.001)  # 1ms
                 
         except asyncio.CancelledError:
-            print("Message sender loop cancelled")
+            self.logger.debug("Message sender loop cancelled")
 
     async def _send_message(self, message: Dict[str, Any]) -> None:
         """Send individual message to drone."""
@@ -472,7 +490,11 @@ class WebRTCStreamer:
                     self.connection_metrics[drone_id].last_update = time.time()
                     
         except Exception as e:
-            print(f"Failed to send message to drone {drone_id}: {e}")
+            self.logger.warning(f"Failed to send message to drone {drone_id}: {e}")
+            # Mark drone as potentially failed for reconnection attempt
+            if drone_id not in self.failed_drones:
+                self.failed_drones.add(drone_id)
+                self.active_drones.discard(drone_id)
 
     async def _metrics_collection_loop(self) -> None:
         """Background loop for collecting connection metrics."""
@@ -484,7 +506,28 @@ class WebRTCStreamer:
                 await asyncio.sleep(1.0)  # Update every second
                 
         except asyncio.CancelledError:
-            print("Metrics collection loop cancelled")
+            self.logger.debug("Metrics collection loop cancelled")
+
+    async def _reconnection_loop(self) -> None:
+        """Background loop for reconnecting to failed drones."""
+        try:
+            while self.is_initialized and self.failed_drones:
+                drones_to_retry = list(self.failed_drones)
+                
+                for drone_id in drones_to_retry:
+                    try:
+                        await self._establish_connection(drone_id)
+                        if drone_id in self.active_drones:
+                            self.failed_drones.discard(drone_id)
+                            self.logger.info(f"Successfully reconnected to drone {drone_id}")
+                    except Exception as e:
+                        self.logger.warning(f"Reconnection attempt failed for drone {drone_id}: {e}")
+                
+                # Wait before next reconnection attempt
+                await asyncio.sleep(self.reconnection_delay)
+                
+        except asyncio.CancelledError:
+            self.logger.debug("Reconnection loop cancelled")
 
     async def _update_connection_metrics(self, drone_id: str) -> None:
         """Update connection metrics for specific drone."""
@@ -519,7 +562,7 @@ class WebRTCStreamer:
             metrics.last_update = time.time()
             
         except Exception as e:
-            print(f"Failed to update metrics for drone {drone_id}: {e}")
+            self.logger.warning(f"Failed to update metrics for drone {drone_id}: {e}")
 
     async def _handle_drone_message(self, drone_id: str, message: str) -> None:
         """Handle incoming message from drone."""
@@ -535,9 +578,9 @@ class WebRTCStreamer:
                 await self._handle_emergency(drone_id, data)
                 
         except json.JSONDecodeError:
-            print(f"Invalid JSON from drone {drone_id}: {message}")
+            self.logger.warning(f"Invalid JSON from drone {drone_id}: {message}")
         except Exception as e:
-            print(f"Error handling message from drone {drone_id}: {e}")
+            self.logger.error(f"Error handling message from drone {drone_id}: {e}")
 
     async def _handle_telemetry(self, drone_id: str, data: Dict[str, Any]) -> None:
         """Handle telemetry data from drone."""
@@ -551,7 +594,7 @@ class WebRTCStreamer:
 
     async def _handle_emergency(self, drone_id: str, data: Dict[str, Any]) -> None:
         """Handle emergency message from drone."""
-        print(f"EMERGENCY from drone {drone_id}: {data}")
+        self.logger.critical(f"EMERGENCY from drone {drone_id}: {data}")
 
     def _get_average_latency(self) -> float:
         """Calculate average latency across all connections."""

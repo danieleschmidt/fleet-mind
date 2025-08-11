@@ -122,6 +122,15 @@ class LLMPlanner:
         self.planning_history: List[Dict[str, Any]] = []
         self.average_planning_time = 0.0
         self.success_rate = 1.0
+        
+        # Initialize logging
+        from ..utils.logging import get_logger
+        self.logger = get_logger("llm_planner", component="planning")
+        
+        # Error handling and recovery
+        self.consecutive_failures = 0
+        self.last_successful_plan = None
+        self.fallback_enabled = True
 
     def _initialize_prompts(self) -> Dict[str, str]:
         """Initialize system prompts for different planning levels."""
@@ -233,9 +242,10 @@ Prioritize safety above all else, with rapid response times under 100ms when pos
         except Exception as e:
             planning_time = (time.time() - start_time) * 1000
             self._update_planning_metrics(planning_time, False)
+            self.consecutive_failures += 1
             
-            print(f"Planning failed: {e}")
-            return self._generate_fallback_plan(context_dict, planning_level)
+            self.logger.error(f"Planning failed (failure #{self.consecutive_failures}): {e}")
+            return await self._generate_enhanced_fallback_plan(context_dict, planning_level, str(e))
 
     async def generate_contingency_plan(
         self,
@@ -402,7 +412,7 @@ Prioritize safety above all else, with rapid response times under 100ms when pos
             
         except Exception as e:
             # Fallback for older OpenAI library versions or different configurations
-            print(f"Primary API call failed, using fallback: {e}")
+            self.logger.warning(f"Primary API call failed, using fallback: {e}")
             return self._generate_mock_response(user_prompt)
 
     def _generate_mock_response(self, user_prompt: str) -> str:
@@ -480,14 +490,18 @@ Prioritize safety above all else, with rapid response times under 100ms when pos
                 if field not in plan_data:
                     plan_data[field] = self._get_default_value(field)
             
+            # Store successful plan for future fallback
+            self.last_successful_plan = plan_data.copy()
+            self.consecutive_failures = 0  # Reset failure counter
+            
             return plan_data
             
         except json.JSONDecodeError as e:
-            print(f"Failed to parse LLM response as JSON: {e}")
-            print(f"Response was: {response[:500]}...")
+            self.logger.error(f"Failed to parse LLM response as JSON: {e}")
+            self.logger.debug(f"Response was: {response[:500]}...")
             return self._generate_fallback_plan({}, planning_level)
         except Exception as e:
-            print(f"Error processing LLM response: {e}")
+            self.logger.error(f"Error processing LLM response: {e}")
             return self._generate_fallback_plan({}, planning_level)
 
     def _generate_fallback_plan(
@@ -572,4 +586,149 @@ Prioritize safety above all else, with rapid response times under 100ms when pos
             'success_rate': self.success_rate,
             'total_plans_generated': len(self.planning_history),
             'recent_performance': self.planning_history[-10:] if self.planning_history else [],
+            'consecutive_failures': self.consecutive_failures,
         }
+    
+    async def _generate_enhanced_fallback_plan(
+        self,
+        context: Dict[str, Any],
+        planning_level: PlanningLevel,
+        error_reason: str
+    ) -> Dict[str, Any]:
+        """Generate enhanced fallback plan with multiple strategies."""
+        self.logger.info(f"Generating enhanced fallback plan (level: {planning_level.value})")
+        
+        # Strategy 1: Use last successful plan if available and appropriate
+        if (self.last_successful_plan is not None and 
+            self.consecutive_failures <= 2 and
+            planning_level == PlanningLevel.STRATEGIC):
+            
+            self.logger.info("Using adapted version of last successful plan")
+            adapted_plan = self.last_successful_plan.copy()
+            adapted_plan['mission_id'] = f"adapted_{int(time.time())}"
+            adapted_plan['summary'] = f"Adapted plan: {adapted_plan.get('summary', 'Unknown')}"
+            adapted_plan['is_fallback'] = True
+            adapted_plan['adaptation_reason'] = error_reason
+            return adapted_plan
+        
+        # Strategy 2: Generate context-aware fallback
+        if context and context.get('mission'):
+            return await self._generate_contextual_fallback(context, planning_level)
+        
+        # Strategy 3: Use the original simple fallback
+        return self._generate_fallback_plan(context, planning_level)
+    
+    async def _generate_contextual_fallback(
+        self,
+        context: Dict[str, Any],
+        planning_level: PlanningLevel
+    ) -> Dict[str, Any]:
+        """Generate contextual fallback based on mission context."""
+        mission = context.get('mission', '')
+        num_drones = context.get('num_drones', 1)
+        
+        # Analyze mission for key actions
+        mission_lower = mission.lower()
+        actions = []
+        
+        # Basic action recognition
+        if 'search' in mission_lower or 'survey' in mission_lower:
+            actions.extend(['takeoff', 'form_search_pattern', 'systematic_sweep', 'report_findings', 'land'])
+        elif 'delivery' in mission_lower:
+            actions.extend(['takeoff', 'navigate_to_target', 'deliver_payload', 'return_home', 'land'])
+        elif 'patrol' in mission_lower or 'monitor' in mission_lower:
+            actions.extend(['takeoff', 'patrol_pattern', 'continuous_monitoring', 'report_status', 'land'])
+        else:
+            # Generic mission
+            actions.extend(['takeoff', 'formation_flight', 'execute_mission', 'return_base', 'land'])
+        
+        # Determine formation based on drone count
+        if num_drones >= 8:
+            formation_type = "grid"
+            spacing = 15.0
+        elif num_drones >= 4:
+            formation_type = "line"
+            spacing = 12.0
+        elif num_drones >= 2:
+            formation_type = "pair"
+            spacing = 10.0
+        else:
+            formation_type = "single"
+            spacing = 0.0
+        
+        fallback_plan = {
+            'mission_id': f"contextual_fallback_{int(time.time())}",
+            'summary': f'Contextual fallback plan for {mission[:50]}...',
+            'objectives': [
+                f'Execute {mission_lower.split()[0] if mission_lower.split() else "mission"} safely',
+                'Maintain formation integrity',
+                'Ensure safe return to base',
+                'Report mission status'
+            ],
+            'action_sequences': [
+                {
+                    'phase': 'initialization',
+                    'duration': 30,
+                    'actions': [
+                        {'type': 'system_check', 'duration': 10},
+                        {'type': 'takeoff', 'altitude': 30, 'duration': 20}
+                    ],
+                    'confidence': 0.9,
+                    'priority': 'high',
+                    'dependencies': []
+                },
+                {
+                    'phase': 'formation',
+                    'duration': 45,
+                    'actions': [
+                        {'type': 'form_formation', 'pattern': formation_type, 'spacing': spacing},
+                        {'type': 'formation_check', 'duration': 15}
+                    ],
+                    'confidence': 0.8,
+                    'priority': 'high',
+                    'dependencies': ['initialization']
+                },
+                {
+                    'phase': 'execution',
+                    'duration': 300,
+                    'actions': [{'type': action, 'duration': 300 // len(actions)} for action in actions],
+                    'confidence': 0.7,
+                    'priority': 'normal',
+                    'dependencies': ['formation']
+                },
+                {
+                    'phase': 'return',
+                    'duration': 60,
+                    'actions': [
+                        {'type': 'return_formation', 'duration': 20},
+                        {'type': 'return_to_base', 'duration': 30},
+                        {'type': 'land_sequence', 'duration': 10}
+                    ],
+                    'confidence': 0.9,
+                    'priority': 'high',
+                    'dependencies': ['execution']
+                }
+            ],
+            'formations': [
+                {
+                    'formation_type': formation_type,
+                    'spacing_meters': spacing,
+                    'orientation_degrees': 0.0,
+                    'leader_drone_id': 'drone_0' if num_drones > 1 else None
+                }
+            ],
+            'contingencies': [
+                'If communication lost, execute return-to-base protocol',
+                'If weather deteriorates, reduce altitude and return',
+                'If drone failure detected, adjust formation and continue',
+                'If mission area inaccessible, report and return'
+            ],
+            'estimated_duration_minutes': 7.25,
+            'risk_assessment': 'Conservative fallback plan with emphasis on safety',
+            'is_fallback': True,
+            'fallback_type': 'contextual',
+            'planning_level': planning_level.value,
+        }
+        
+        self.logger.info(f"Generated contextual fallback plan with {len(actions)} primary actions")
+        return fallback_plan

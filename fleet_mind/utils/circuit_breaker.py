@@ -142,6 +142,10 @@ class CircuitBreaker:
     
     def get_status(self) -> Dict[str, Any]:
         """Get circuit breaker status."""
+        # Calculate additional metrics
+        avg_call_time = sum(self.call_times) / len(self.call_times) if self.call_times else 0.0
+        failure_rate = self.total_failures / max(self.total_calls, 1)
+        
         return {
             'name': self.name,
             'state': self.state.value,
@@ -150,7 +154,11 @@ class CircuitBreaker:
             'total_calls': self.total_calls,
             'total_failures': self.total_failures,
             'total_successes': self.total_successes,
-            'failure_rate': self.total_failures / max(self.total_calls, 1),
+            'failure_rate': failure_rate,
+            'avg_call_time_ms': avg_call_time,
+            'error_breakdown': dict(self.error_types),
+            'recovery_attempts': self.recovery_attempts,
+            'recovery_success_rate': self.recovery_successes / max(self.recovery_attempts, 1),
             'last_failure_time': self.last_failure_time,
             'config': {
                 'failure_threshold': self.config.failure_threshold,
