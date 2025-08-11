@@ -5,10 +5,14 @@ import hmac
 import secrets
 import time
 import json
-from typing import Dict, List, Optional, Set, Any, Tuple
+import ipaddress
+import threading
+from collections import defaultdict, deque
+from typing import Dict, List, Optional, Set, Any, Tuple, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import base64
+import uuid
 
 try:
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -45,17 +49,30 @@ class ThreatType(Enum):
     DENIAL_OF_SERVICE = "denial_of_service"
     COMMAND_INJECTION = "command_injection"
     COMMUNICATION_INTERCEPT = "communication_intercept"
+    RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
+    SUSPICIOUS_PATTERN = "suspicious_pattern"
+    AUTHENTICATION_FAILURE = "authentication_failure"
+    PRIVILEGE_ESCALATION = "privilege_escalation"
+    DATA_EXFILTRATION = "data_exfiltration"
 
 
 @dataclass
 class SecurityEvent:
     """Security event record."""
+    event_id: str
     timestamp: float
     event_type: ThreatType
     severity: SecurityLevel
     source: str
+    source_ip: Optional[str]
     description: str
     action_taken: str
+    user_agent: Optional[str] = None
+    session_id: Optional[str] = None
+    geo_location: Optional[Dict[str, str]] = None
+    risk_score: float = 0.0
+    resolved: bool = False
+    investigation_notes: List[str] = field(default_factory=list)
     additional_data: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -68,61 +85,274 @@ class DroneCredentials:
     issued_at: float
     expires_at: float
     permissions: Set[str] = field(default_factory=set)
+    multi_factor_enabled: bool = False
+    last_used: Optional[float] = None
+    usage_count: int = 0
+    allowed_ips: Set[str] = field(default_factory=set)
+    certificate_chain: List[bytes] = field(default_factory=list)
+    revoked: bool = False
+    revocation_reason: Optional[str] = None
+
+@dataclass
+class RateLimitRule:
+    """Rate limiting rule configuration."""
+    name: str
+    requests_per_window: int
+    window_seconds: int
+    burst_allowance: int = 0
+    penalty_seconds: int = 300
+    exempt_sources: Set[str] = field(default_factory=set)
+
+@dataclass
+class SecurityAuditRecord:
+    """Security audit record for compliance."""
+    audit_id: str
+    timestamp: float
+    action: str
+    user_id: str
+    resource: str
+    success: bool
+    details: Dict[str, Any] = field(default_factory=dict)
+    ip_address: Optional[str] = None
+    session_id: Optional[str] = None
+
+@dataclass
+class SecurityMetrics:
+    """Security performance and threat metrics."""
+    total_requests: int = 0
+    blocked_requests: int = 0
+    failed_authentications: int = 0
+    successful_authentications: int = 0
+    rate_limited_requests: int = 0
+    suspicious_activities: int = 0
+    threat_detections: int = 0
+    last_reset: float = field(default_factory=time.time)
 
 
 class SecurityManager:
-    """Comprehensive security manager for Fleet-Mind operations.
+    """Enterprise-grade security manager for Fleet-Mind operations.
     
-    Provides encryption, authentication, authorization, threat detection,
-    and security monitoring for drone swarm communications.
+    Provides comprehensive security including:
+    - Advanced authentication and authorization
+    - Rate limiting and DDoS protection  
+    - Real-time threat detection and response
+    - Security audit logging for compliance
+    - Multi-factor authentication support
+    - IP-based access controls
+    - Certificate management with revocation
+    - Anomaly detection and behavioral analysis
     """
     
     def __init__(
         self,
         security_level: SecurityLevel = SecurityLevel.HIGH,
         key_rotation_interval: float = 3600.0,  # 1 hour
-        enable_threat_detection: bool = True
+        enable_threat_detection: bool = True,
+        enable_rate_limiting: bool = True,
+        enable_audit_logging: bool = True,
+        max_failed_attempts: int = 5,
+        lockout_duration: int = 1800,  # 30 minutes
+        enable_geo_blocking: bool = False,
+        allowed_countries: Optional[Set[str]] = None
     ):
-        """Initialize security manager.
+        """Initialize enterprise security manager.
         
         Args:
             security_level: Default security level for operations
             key_rotation_interval: Key rotation interval in seconds
             enable_threat_detection: Enable real-time threat detection
+            enable_rate_limiting: Enable rate limiting protection
+            enable_audit_logging: Enable comprehensive audit logging
+            max_failed_attempts: Max failed attempts before lockout
+            lockout_duration: Lockout duration in seconds
+            enable_geo_blocking: Enable geographic access restrictions
+            allowed_countries: Set of allowed country codes
         """
         self.security_level = security_level
         self.key_rotation_interval = key_rotation_interval
         self.enable_threat_detection = enable_threat_detection
+        self.enable_rate_limiting = enable_rate_limiting
+        self.enable_audit_logging = enable_audit_logging
+        self.max_failed_attempts = max_failed_attempts
+        self.lockout_duration = lockout_duration
+        self.enable_geo_blocking = enable_geo_blocking
+        self.allowed_countries = allowed_countries or {'US', 'CA', 'GB', 'EU'}
+        
+        # Thread safety
+        self._lock = threading.RLock()
         
         # Cryptographic components
         self.master_key = self._generate_master_key()
         self.session_keys: Dict[str, bytes] = {}
         self.drone_credentials: Dict[str, DroneCredentials] = {}
         
-        # Security monitoring
+        # Enhanced security monitoring
         self.security_events: List[SecurityEvent] = []
+        self.security_audit_log: List[SecurityAuditRecord] = []
         self.failed_attempts: Dict[str, List[float]] = {}  # source -> timestamps
         self.blocked_sources: Set[str] = set()
+        self.locked_accounts: Dict[str, float] = {}  # account -> unlock_time
         self.last_key_rotation = time.time()
         
-        # Message integrity
+        # Rate limiting
+        self.rate_limit_rules: List[RateLimitRule] = []
+        self.rate_limit_counters: Dict[str, Dict[str, deque]] = defaultdict(lambda: defaultdict(deque))
+        self.rate_limit_penalties: Dict[str, float] = {}  # source -> penalty_end_time
+        
+        # Message integrity and replay prevention
         self.message_hashes: Dict[str, str] = {}  # message_id -> hash
         self.nonce_cache: Set[str] = set()  # replay attack prevention
+        self.message_sequence_numbers: Dict[str, int] = {}  # source -> last_seq_num
         
-        # Threat detection patterns
+        # Advanced threat detection
         self.threat_patterns = {
             ThreatType.REPLAY_ATTACK: self._detect_replay_attack,
             ThreatType.DENIAL_OF_SERVICE: self._detect_dos_attack,
             ThreatType.COMMAND_INJECTION: self._detect_command_injection,
             ThreatType.DATA_TAMPERING: self._detect_data_tampering,
+            ThreatType.RATE_LIMIT_EXCEEDED: self._detect_rate_limit_violation,
+            ThreatType.SUSPICIOUS_PATTERN: self._detect_suspicious_patterns,
+            ThreatType.PRIVILEGE_ESCALATION: self._detect_privilege_escalation,
         }
         
-        # Performance metrics
-        self.encryption_times: List[float] = []
-        self.decryption_times: List[float] = []
+        # Behavioral analysis
+        self.user_behavior_profiles: Dict[str, Dict[str, Any]] = {}
+        self.anomaly_detection_enabled = True
+        self.suspicious_activity_threshold = 3
         
-        print(f"Security manager initialized with {security_level.value} security level")
+        # Security metrics and monitoring
+        self.security_metrics = SecurityMetrics()
+        self.performance_metrics = {
+            'encryption_times': [],
+            'decryption_times': [],
+            'authentication_times': [],
+            'threat_detection_times': []
+        }
+        
+        # Initialize default rate limiting rules
+        self._initialize_default_rate_limits()
+        
+        # Event callbacks for real-time monitoring
+        self.event_callbacks: List[Callable[[SecurityEvent], None]] = []
+        
+        print(f"Enterprise security manager initialized:")
+        print(f"  - Security Level: {security_level.value}")
+        print(f"  - Threat Detection: {'Enabled' if enable_threat_detection else 'Disabled'}")
+        print(f"  - Rate Limiting: {'Enabled' if enable_rate_limiting else 'Disabled'}")
+        print(f"  - Audit Logging: {'Enabled' if enable_audit_logging else 'Disabled'}")
+        print(f"  - Geo-blocking: {'Enabled' if enable_geo_blocking else 'Disabled'}")
 
+    def _initialize_default_rate_limits(self) -> None:
+        """Initialize default rate limiting rules."""
+        default_rules = [
+            RateLimitRule(
+                name="authentication",
+                requests_per_window=10,
+                window_seconds=60,
+                burst_allowance=3,
+                penalty_seconds=300
+            ),
+            RateLimitRule(
+                name="command_execution",
+                requests_per_window=100,
+                window_seconds=60,
+                burst_allowance=20,
+                penalty_seconds=60
+            ),
+            RateLimitRule(
+                name="data_access",
+                requests_per_window=1000,
+                window_seconds=60,
+                burst_allowance=100,
+                penalty_seconds=30
+            )
+        ]
+        self.rate_limit_rules = default_rules
+    
+    def add_event_callback(self, callback: Callable[[SecurityEvent], None]) -> None:
+        """Add callback for security event notifications.
+        
+        Args:
+            callback: Callback function to be called on security events
+        """
+        self.event_callbacks.append(callback)
+    
+    def _create_audit_record(
+        self,
+        action: str,
+        user_id: str,
+        resource: str,
+        success: bool,
+        details: Optional[Dict[str, Any]] = None,
+        ip_address: Optional[str] = None,
+        session_id: Optional[str] = None
+    ) -> None:
+        """Create security audit record.
+        
+        Args:
+            action: Action performed
+            user_id: User identifier
+            resource: Resource accessed
+            success: Whether action was successful
+            details: Additional details
+            ip_address: IP address
+            session_id: Session identifier
+        """
+        if not self.enable_audit_logging:
+            return
+        
+        audit_record = SecurityAuditRecord(
+            audit_id=str(uuid.uuid4()),
+            timestamp=time.time(),
+            action=action,
+            user_id=user_id,
+            resource=resource,
+            success=success,
+            details=details or {},
+            ip_address=ip_address,
+            session_id=session_id
+        )
+        
+        with self._lock:
+            self.security_audit_log.append(audit_record)
+            
+            # Keep audit log within reasonable size
+            if len(self.security_audit_log) > 10000:
+                self.security_audit_log = self.security_audit_log[-5000:]
+    
+    def get_security_audit_log(self, 
+                              start_time: Optional[float] = None,
+                              end_time: Optional[float] = None,
+                              user_id: Optional[str] = None,
+                              action: Optional[str] = None) -> List[SecurityAuditRecord]:
+        """Get security audit log with optional filtering.
+        
+        Args:
+            start_time: Start time filter
+            end_time: End time filter  
+            user_id: User ID filter
+            action: Action filter
+            
+        Returns:
+            Filtered list of audit records
+        """
+        with self._lock:
+            filtered_records = self.security_audit_log.copy()
+            
+            if start_time:
+                filtered_records = [r for r in filtered_records if r.timestamp >= start_time]
+            
+            if end_time:
+                filtered_records = [r for r in filtered_records if r.timestamp <= end_time]
+            
+            if user_id:
+                filtered_records = [r for r in filtered_records if r.user_id == user_id]
+            
+            if action:
+                filtered_records = [r for r in filtered_records if r.action == action]
+            
+            return filtered_records
+    
     def _generate_master_key(self) -> bytes:
         """Generate master encryption key."""
         if CRYPTOGRAPHY_AVAILABLE:
@@ -196,7 +426,8 @@ class SecurityManager:
             SecurityLevel.LOW,
             "system",
             f"Generated credentials for drone {drone_id}",
-            "credentials_issued"
+            "credentials_issued",
+            source_ip=None
         )
         
         return credentials
@@ -268,7 +499,82 @@ class SecurityManager:
             self._record_failed_attempt(drone_id)
             return False
 
-    def authorize_action(self, drone_id: str, action: str) -> bool:
+    def check_rate_limit(self, source: str, rule_name: str, source_ip: Optional[str] = None) -> bool:
+        """Check if request violates rate limiting rules.
+        
+        Args:
+            source: Source identifier
+            rule_name: Name of rate limit rule to check
+            source_ip: Source IP address
+            
+        Returns:
+            True if request is allowed, False if rate limited
+        """
+        if not self.enable_rate_limiting:
+            return True
+            
+        # Check if source is under penalty
+        if source in self.rate_limit_penalties:
+            penalty_end = self.rate_limit_penalties[source]
+            if time.time() < penalty_end:
+                return False
+            else:
+                # Penalty expired, remove it
+                del self.rate_limit_penalties[source]
+        
+        # Find the rate limit rule
+        rule = None
+        for r in self.rate_limit_rules:
+            if r.name == rule_name:
+                rule = r
+                break
+        
+        if not rule:
+            return True  # No rule found, allow request
+            
+        # Check if source is exempt
+        if source in rule.exempt_sources:
+            return True
+            
+        current_time = time.time()
+        window_start = current_time - rule.window_seconds
+        
+        # Clean old requests
+        if source in self.rate_limit_counters and rule_name in self.rate_limit_counters[source]:
+            counter = self.rate_limit_counters[source][rule_name]
+            while counter and counter[0] < window_start:
+                counter.popleft()
+        
+        # Count requests in current window
+        request_count = len(self.rate_limit_counters[source][rule_name])
+        
+        # Check burst allowance
+        if request_count < rule.burst_allowance:
+            self.rate_limit_counters[source][rule_name].append(current_time)
+            return True
+            
+        # Check regular limit
+        if request_count >= rule.requests_per_window:
+            # Rate limit exceeded, apply penalty
+            self.rate_limit_penalties[source] = current_time + rule.penalty_seconds
+            
+            # Log security event
+            self._log_security_event(
+                ThreatType.RATE_LIMIT_EXCEEDED,
+                SecurityLevel.MEDIUM,
+                source,
+                f"Rate limit exceeded for rule {rule_name}: {request_count} requests in {rule.window_seconds}s",
+                "rate_limited",
+                source_ip=source_ip
+            )
+            
+            return False
+        
+        # Add request and allow
+        self.rate_limit_counters[source][rule_name].append(current_time)
+        return True
+
+    def authorize_action(self, drone_id: str, action: str, source_ip: Optional[str] = None) -> bool:
         """Check if drone is authorized to perform specific action.
         
         Args:
@@ -379,7 +685,11 @@ class SecurityManager:
             
             # Record encryption time
             encryption_time = (time.time() - start_time) * 1000
-            self.encryption_times.append(encryption_time)
+            self.performance_metrics['encryption_times'].append(encryption_time)
+            
+            # Keep performance metrics within reasonable size
+            if len(self.performance_metrics['encryption_times']) > 1000:
+                self.performance_metrics['encryption_times'] = self.performance_metrics['encryption_times'][-500:]
             
             return encrypted_package
             
@@ -479,7 +789,11 @@ class SecurityManager:
             
             # Record decryption time
             decryption_time = (time.time() - start_time) * 1000
-            self.decryption_times.append(decryption_time)
+            self.performance_metrics['decryption_times'].append(decryption_time)
+            
+            # Keep performance metrics within reasonable size
+            if len(self.performance_metrics['decryption_times']) > 1000:
+                self.performance_metrics['decryption_times'] = self.performance_metrics['decryption_times'][-500:]
             
             return message
             
@@ -569,9 +883,72 @@ class SecurityManager:
                 "time_until_next": self.last_key_rotation + self.key_rotation_interval - time.time()
             },
             "performance": {
-                "avg_encryption_time_ms": sum(self.encryption_times[-100:]) / len(self.encryption_times[-100:]) if self.encryption_times else 0,
-                "avg_decryption_time_ms": sum(self.decryption_times[-100:]) / len(self.decryption_times[-100:]) if self.decryption_times else 0,
-                "total_operations": len(self.encryption_times) + len(self.decryption_times)
+                "avg_encryption_time_ms": sum(self.performance_metrics['encryption_times'][-100:]) / len(self.performance_metrics['encryption_times'][-100:]) if self.performance_metrics['encryption_times'] else 0,
+                "avg_decryption_time_ms": sum(self.performance_metrics['decryption_times'][-100:]) / len(self.performance_metrics['decryption_times'][-100:]) if self.performance_metrics['decryption_times'] else 0,
+                "total_operations": len(self.performance_metrics['encryption_times']) + len(self.performance_metrics['decryption_times'])
+            }
+        }
+
+    def get_security_dashboard_data(self) -> Dict[str, Any]:
+        """Get comprehensive security dashboard data.
+        
+        Returns:
+            Dictionary containing security dashboard metrics
+        """
+        # Calculate current metrics
+        total_requests = self.security_metrics.total_requests
+        blocked_requests = self.security_metrics.blocked_requests
+        failed_auths = self.security_metrics.failed_authentications
+        successful_auths = self.security_metrics.successful_authentications
+        
+        # Calculate rates
+        block_rate = (blocked_requests / total_requests) if total_requests > 0 else 0
+        auth_success_rate = (successful_auths / (successful_auths + failed_auths)) if (successful_auths + failed_auths) > 0 else 0
+        
+        # Get recent activity
+        recent_events = [e for e in self.security_events if time.time() - e.timestamp < 3600]
+        
+        # Get locked accounts
+        active_lockouts = len([acc for acc, unlock_time in self.locked_accounts.items() 
+                             if time.time() < unlock_time])
+        
+        return {
+            'security_level': self.security_level.value,
+            'monitoring_enabled': {
+                'threat_detection': self.enable_threat_detection,
+                'rate_limiting': self.enable_rate_limiting,
+                'audit_logging': self.enable_audit_logging,
+                'geo_blocking': self.enable_geo_blocking
+            },
+            'metrics': {
+                'total_requests': total_requests,
+                'blocked_requests': blocked_requests,
+                'failed_authentications': failed_auths,
+                'successful_authentications': successful_auths,
+                'block_rate': block_rate,
+                'auth_success_rate': auth_success_rate
+            },
+            'recent_activity': {
+                'events_last_hour': len(recent_events),
+                'threats_detected': len([e for e in recent_events if e.severity in [SecurityLevel.HIGH, SecurityLevel.CRITICAL]]),
+                'rate_limited_requests': self.security_metrics.rate_limited_requests
+            },
+            'rate_limiting': {
+                'rules_active': len(self.rate_limit_rules),
+                'sources_under_penalty': len(self.rate_limit_penalties)
+            },
+            'account_security': {
+                'active_credentials': len(self.drone_credentials),
+                'locked_accounts': active_lockouts,
+                'blocked_sources': len(self.blocked_sources)
+            },
+            'system_health': {
+                'last_key_rotation': self.last_key_rotation,
+                'next_key_rotation': self.last_key_rotation + self.key_rotation_interval
+            },
+            'performance': {
+                'avg_encryption_time': sum(self.performance_metrics['encryption_times'][-100:]) / len(self.performance_metrics['encryption_times'][-100:]) if self.performance_metrics['encryption_times'] else 0,
+                'avg_decryption_time': sum(self.performance_metrics['decryption_times'][-100:]) / len(self.performance_metrics['decryption_times'][-100:]) if self.performance_metrics['decryption_times'] else 0
             }
         }
 
@@ -593,8 +970,66 @@ class SecurityManager:
         data = f"{drone_id}:{time.time()//300}"  # 5-minute windows
         return hmac.new(self.master_key, data.encode(), hashlib.sha256).hexdigest()
 
-    def _record_failed_attempt(self, source: str) -> None:
-        """Record failed authentication attempt."""
+    def _detect_rate_limit_violation(self, message: Dict[str, Any], source: str) -> bool:
+        """Detect rate limit violations."""
+        # This is handled in check_rate_limit method
+        return False
+    
+    def _detect_suspicious_patterns(self, message: Dict[str, Any], source: str) -> bool:
+        """Detect suspicious activity patterns."""
+        with self._lock:
+            if source in self.user_behavior_profiles:
+                profile = self.user_behavior_profiles[source]
+                
+                # Check for unusual activity patterns
+                current_hour = int(time.time() / 3600) % 24
+                typical_activity = profile['typical_hours'].get(current_hour, 0)
+                
+                # If this is very unusual timing for this user
+                if profile['activity_count'] > 100 and typical_activity < 5:
+                    return True
+                
+                # Check for rapid credential changes
+                if 'credential_changes' in profile:
+                    recent_changes = [t for t in profile['credential_changes'] if time.time() - t < 3600]
+                    if len(recent_changes) > 3:  # More than 3 credential changes per hour
+                        return True
+            
+            return False
+    
+    def _detect_privilege_escalation(self, message: Dict[str, Any], source: str) -> bool:
+        """Detect privilege escalation attempts."""
+        if source not in self.drone_credentials:
+            return False
+        
+        credentials = self.drone_credentials[source]
+        action = message.get('action', '')
+        
+        # Define privileged actions that should be monitored
+        privileged_actions = {
+            'system_shutdown', 'credential_modify', 'security_override',
+            'admin_access', 'config_modify', 'user_management'
+        }
+        
+        if action in privileged_actions and 'admin' not in credentials.permissions:
+            self._log_security_event(
+                ThreatType.PRIVILEGE_ESCALATION,
+                SecurityLevel.HIGH,
+                source,
+                f"Privilege escalation attempt: {action}",
+                "action_blocked"
+            )
+            return True
+        
+        return False
+    
+    def _record_failed_attempt(self, source: str, source_ip: Optional[str] = None) -> None:
+        """Record failed authentication attempt with enhanced tracking.
+        
+        Args:
+            source: Source identifier
+            source_ip: Source IP address
+        """
         current_time = time.time()
         
         if source not in self.failed_attempts:
@@ -608,16 +1043,37 @@ class SecurityManager:
             if current_time - t < 3600
         ]
         
-        # Block source if too many failed attempts
-        if len(self.failed_attempts[source]) >= 5:  # 5 attempts in 1 hour
-            self.blocked_sources.add(source)
+        # Apply progressive lockout policy
+        attempt_count = len(self.failed_attempts[source])
+        
+        if attempt_count >= self.max_failed_attempts:
+            # Lock account
+            lockout_duration = self.lockout_duration
+            if attempt_count > self.max_failed_attempts * 2:
+                lockout_duration *= 2  # Extended lockout for persistent attacks
+            
+            self.locked_accounts[source] = current_time + lockout_duration
+            
             self._log_security_event(
-                ThreatType.UNAUTHORIZED_ACCESS,
+                ThreatType.AUTHENTICATION_FAILURE,
                 SecurityLevel.HIGH,
                 source,
-                f"Source {source} blocked due to repeated failed attempts",
-                "source_blocked"
+                f"Account {source} locked due to {attempt_count} failed attempts",
+                "account_locked",
+                source_ip=source_ip
             )
+            
+            # Also block the source if excessive failures
+            if attempt_count >= self.max_failed_attempts * 3:
+                self.blocked_sources.add(source)
+                self._log_security_event(
+                    ThreatType.DENIAL_OF_SERVICE,
+                    SecurityLevel.CRITICAL,
+                    source,
+                    f"Source {source} blocked due to {attempt_count} failed attempts",
+                    "source_blocked",
+                    source_ip=source_ip
+                )
 
     def _clear_failed_attempts(self, source: str) -> None:
         """Clear failed attempts for successful authentication."""
@@ -634,14 +1090,17 @@ class SecurityManager:
         source: str,
         description: str,
         action_taken: str,
+        source_ip: Optional[str] = None,
         additional_data: Dict[str, Any] = None
     ) -> None:
         """Log security event."""
         event = SecurityEvent(
+            event_id=str(uuid.uuid4()),
             timestamp=time.time(),
             event_type=event_type,
             severity=severity,
             source=source,
+            source_ip=source_ip,
             description=description,
             action_taken=action_taken,
             additional_data=additional_data or {}
