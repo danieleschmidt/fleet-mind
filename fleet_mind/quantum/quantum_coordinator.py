@@ -12,7 +12,11 @@ import math
 import cmath
 import time
 import random
-from typing import Dict, List, Optional, Any, Tuple, Complex
+from typing import Dict, List, Optional, Any, Tuple
+try:
+    from typing import Complex
+except ImportError:
+    Complex = complex
 from dataclasses import dataclass, field
 from collections import defaultdict
 from enum import Enum
