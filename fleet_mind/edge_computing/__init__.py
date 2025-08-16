@@ -10,7 +10,7 @@ This module implements next-generation edge computing capabilities:
 from .edge_coordinator import EdgeCoordinator, EdgeNode, ComputeWorkload
 from .network_5g import FiveGOptimizer, NetworkSlice, QualityOfService
 from .federated_learning import FederatedLearning, ModelAggregation, PrivacyPreservation
-from .edge_ai_deployment import EdgeAIDeployment, ModelPartitioning, DistributedInference
+from .edge_ai_deployment import EdgeAIDeployment, ModelPartition, DistributedInference
 
 __all__ = [
     "EdgeCoordinator",
@@ -23,6 +23,6 @@ __all__ = [
     "ModelAggregation",
     "PrivacyPreservation",
     "EdgeAIDeployment",
-    "ModelPartitioning",
+    "ModelPartition",
     "DistributedInference",
 ]
