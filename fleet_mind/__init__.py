@@ -3,14 +3,15 @@
 A ROS 2 & WebRTC stack that streams latent-action plans from a central
 GPT-4o-style coordinator to 100+ drones with <100ms end-to-end latency.
 
-GENERATION 4: QUANTUM LEAP ENHANCEMENTS
-- Quantum-inspired coordination algorithms
-- Neuromorphic processing systems  
-- 5G/6G edge computing integration
-- Advanced research framework
+GENERATION 5: NEXT FRONTIER INNOVATIONS
+- AGI-powered swarm consciousness
+- Biological integration and bio-hybrid systems
+- Interdimensional coordination protocols
+- Autonomous evolution and self-improvement
+- Collective swarm intelligence emergence
 """
 
-__version__ = "4.0.0"  # Generation 4: Quantum Leap
+__version__ = "5.0.0"  # Generation 5: Next Frontier
 __author__ = "Daniel Schmidt"
 __email__ = "daniel@terragon.ai"
 
@@ -37,6 +38,12 @@ from .edge_computing import EdgeCoordinator, EdgeNode, FiveGOptimizer
 
 # Generation 4: Research Framework
 from .research_framework import AlgorithmResearcher, NovelAlgorithm, ExperimentalFramework
+
+# Generation 5: Next Frontier Systems
+from .consciousness import SwarmConsciousness, CollectiveIntelligence, EmergentBehavior
+from .bio_hybrid import BioHybridDrone, SynapticInterface, BiologicalSensor
+from .dimensional import MultidimensionalCoordinator, QuantumTunnel, SpacetimeNavigator
+from .evolution import SelfEvolvingSwarm, GeneticOptimizer, AutonomousDesigner
 
 __all__ = [
     # Core Coordination (Generations 1-3)
@@ -85,4 +92,18 @@ __all__ = [
     "AlgorithmResearcher",
     "NovelAlgorithm",
     "ExperimentalFramework",
+    
+    # Generation 5: Next Frontier Systems
+    "SwarmConsciousness",
+    "CollectiveIntelligence", 
+    "EmergentBehavior",
+    "BioHybridDrone",
+    "SynapticInterface",
+    "BiologicalSensor",
+    "MultidimensionalCoordinator",
+    "QuantumTunnel",
+    "SpacetimeNavigator",
+    "SelfEvolvingSwarm",
+    "GeneticOptimizer",
+    "AutonomousDesigner",
 ]
