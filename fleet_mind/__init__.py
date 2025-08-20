@@ -3,15 +3,16 @@
 A ROS 2 & WebRTC stack that streams latent-action plans from a central
 GPT-4o-style coordinator to 100+ drones with <100ms end-to-end latency.
 
-GENERATION 5: NEXT FRONTIER INNOVATIONS
-- AGI-powered swarm consciousness
-- Biological integration and bio-hybrid systems
-- Interdimensional coordination protocols
-- Autonomous evolution and self-improvement
-- Collective swarm intelligence emergence
+GENERATION 8: PROGRESSIVE QUALITY GATES
+- Intelligent quality monitoring with ML-powered prediction
+- Progressive testing framework with adaptive test generation
+- Continuous performance optimization with real-time improvement
+- Advanced compliance automation with dynamic regulatory adherence
+- Proactive reliability engineering with predictive prevention and self-healing
+- Comprehensive quality gate orchestration and certification
 """
 
-__version__ = "5.0.0"  # Generation 5: Next Frontier
+__version__ = "8.0.0"  # Generation 8: Progressive Quality Gates
 __author__ = "Daniel Schmidt"
 __email__ = "daniel@terragon.ai"
 
@@ -44,6 +45,25 @@ from .consciousness import SwarmConsciousness, CollectiveIntelligence, EmergentB
 from .bio_hybrid import BioHybridDrone, SynapticInterface, BiologicalSensor
 from .dimensional import MultidimensionalCoordinator, QuantumTunnel, SpacetimeNavigator
 from .evolution import SelfEvolvingSwarm, GeneticOptimizer, AutonomousDesigner
+
+# Generation 6: Ultimate Convergence
+from .convergence import UltimateCoordinator
+
+# Generation 8: Progressive Quality Gates
+from .quality_gates import (
+    IntelligentQualityMonitor,
+    QualityMetric,
+    QualityThreshold,
+    ProgressiveTestingFramework,
+    AdaptiveTestGenerator,
+    ContinuousPerformanceOptimizer,
+    OptimizationStrategy,
+    ComplianceAutomation,
+    ComplianceFramework,
+    ProactiveReliabilityEngine,
+    ReliabilityPrediction,
+    QualityGateOrchestrator
+)
 
 __all__ = [
     # Core Coordination (Generations 1-3)
@@ -106,4 +126,21 @@ __all__ = [
     "SelfEvolvingSwarm",
     "GeneticOptimizer",
     "AutonomousDesigner",
+    
+    # Generation 6: Ultimate Convergence
+    "UltimateCoordinator",
+    
+    # Generation 8: Progressive Quality Gates
+    "IntelligentQualityMonitor",
+    "QualityMetric",
+    "QualityThreshold",
+    "ProgressiveTestingFramework",
+    "AdaptiveTestGenerator",
+    "ContinuousPerformanceOptimizer",
+    "OptimizationStrategy",
+    "ComplianceAutomation",
+    "ComplianceFramework",
+    "ProactiveReliabilityEngine", 
+    "ReliabilityPrediction",
+    "QualityGateOrchestrator",
 ]
