@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fleet-mind-prod
+  labels:
+    app.kubernetes.io/name: fleet-mind
+    app.kubernetes.io/component: namespace
+    environment: production
+  annotations:
+    deployment.fleet-mind.io/id: fleet-mind-production-1755714059
+    deployment.fleet-mind.io/created: 2025-08-20T18:21:00Z

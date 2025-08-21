@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-mind-config
+  namespace: fleet-mind-prod
+data:
+  environment: production
+  deployment_id: fleet-mind-production-1755714059
+  log_level: INFO
+  metrics_enabled: "true"
+  tracing_enabled: "true"
+  prometheus_endpoint: http://prometheus:9090
+  jaeger_endpoint: http://jaeger:14268
+  redis_endpoint: redis:6379
+  database_host: postgres
+  database_port: "5432"
+  database_name: fleet_mind

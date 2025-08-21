@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fleet-mind-global
+  labels:
+    app.kubernetes.io/name: fleet-mind
+    app.kubernetes.io/component: namespace
+    environment: global_edge
+  annotations:
+    deployment.fleet-mind.io/id: fleet-mind-global_edge-1755714086
+    deployment.fleet-mind.io/created: 2025-08-20T18:21:26Z

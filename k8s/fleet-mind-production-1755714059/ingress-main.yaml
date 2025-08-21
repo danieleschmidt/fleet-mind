@@ -1,0 +1,67 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fleet-mind-ingress
+  namespace: fleet-mind-prod
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/rate-limit: "1000"
+spec:
+  tls:
+  - hosts:
+    - fleet-mind.io
+    - api.fleet-mind.io
+    secretName: fleet-mind-tls
+  rules:
+  - host: fleet-mind.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: fleet-mind-ui
+            port:
+              number: 8090
+  - host: api.fleet-mind.io
+    http:
+      paths:
+      - path: /coordinator
+        pathType: Prefix
+        backend:
+          service:
+            name: fleet-mind-coordinator
+            port:
+              number: 8080
+      - path: /communication
+        pathType: Prefix
+        backend:
+          service:
+            name: fleet-mind-communication
+            port:
+              number: 8081
+      - path: /planner
+        pathType: Prefix
+        backend:
+          service:
+            name: fleet-mind-planner
+            port:
+              number: 8082
+      - path: /security
+        pathType: Prefix
+        backend:
+          service:
+            name: fleet-mind-security
+            port:
+              number: 8083
+      - path: /research
+        pathType: Prefix
+        backend:
+          service:
+            name: fleet-mind-research
+            port:
+              number: 8084
