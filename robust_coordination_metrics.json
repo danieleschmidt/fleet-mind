@@ -1,0 +1,76 @@
+{
+  "performance": {
+    "coordination_latency_ms": 0.0,
+    "error_rate": 0.38333333333333336,
+    "total_coordinations": 0,
+    "total_errors": 23
+  },
+  "health": {
+    "overall_status": "critical",
+    "metrics": {
+      "coordination_latency_ms": {
+        "value": 0.0,
+        "threshold": 1000.0,
+        "status": "healthy",
+        "last_updated": 1755830018.9696746,
+        "alert_count": 0
+      },
+      "error_rate": {
+        "value": 0.38333333333333336,
+        "threshold": 0.1,
+        "status": "critical",
+        "last_updated": 1755830029.004327,
+        "alert_count": 1
+      },
+      "drone_failure_rate": {
+        "value": 0.0,
+        "threshold": 0.2,
+        "status": "healthy",
+        "last_updated": 1755830018.9696822,
+        "alert_count": 0
+      },
+      "memory_usage_mb": {
+        "value": 0.0,
+        "threshold": 1024.0,
+        "status": "healthy",
+        "last_updated": 1755830018.9696836,
+        "alert_count": 0
+      },
+      "cpu_usage_percent": {
+        "value": 0.0,
+        "threshold": 80.0,
+        "status": "healthy",
+        "last_updated": 1755830018.9696856,
+        "alert_count": 0
+      }
+    },
+    "recent_alerts": [
+      {
+        "metric": "error_rate",
+        "value": 0.11666666666666667,
+        "threshold": 0.1,
+        "severity": "critical",
+        "timestamp": 1755830020.5799177,
+        "message": "error_rate exceeded threshold: 0.11666666666666667 > 0.1"
+      }
+    ],
+    "timestamp": 1755830029.0044596
+  },
+  "security": {
+    "total_events": 14,
+    "failed_attempts": 0,
+    "active_sessions": 1
+  },
+  "fleet": {
+    "total_drones": 12,
+    "active_drones": 9,
+    "failed_drones": 3,
+    "avg_battery": 1.0
+  },
+  "system_state": {
+    "is_running": false,
+    "system_degraded": false,
+    "emergency_stop": true,
+    "current_mission": "search"
+  }
+}
