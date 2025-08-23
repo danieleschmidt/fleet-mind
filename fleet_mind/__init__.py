@@ -16,17 +16,56 @@ __version__ = "8.0.0"  # Generation 8: Progressive Quality Gates
 __author__ = "Daniel Schmidt"
 __email__ = "daniel@terragon.ai"
 
-# Core Coordination (Generations 1-3)
-from .coordination.swarm_coordinator import SwarmCoordinator, MissionStatus, MissionConstraints
-from .communication.webrtc_streamer import WebRTCStreamer, MessagePriority, ReliabilityMode
-from .communication.latent_encoder import LatentEncoder, CompressionType
-from .planning.llm_planner import LLMPlanner, PlanningLevel
-from .fleet.drone_fleet import DroneFleet, DroneStatus, DroneCapability
-from .security import SecurityManager, SecurityLevel
-from .monitoring import HealthMonitor, HealthStatus, AlertSeverity
-from .utils.performance import performance_monitor, get_performance_summary
-from .utils.concurrency import execute_concurrent, get_concurrency_stats
-from .utils.auto_scaling import update_scaling_metric, get_autoscaling_stats
+# Core Coordination (Generations 1-3) with graceful import fallbacks
+try:
+    from .coordination.swarm_coordinator import SwarmCoordinator, MissionStatus, MissionConstraints
+except ImportError:
+    SwarmCoordinator = MissionStatus = MissionConstraints = None
+
+try:
+    from .communication.webrtc_streamer import WebRTCStreamer, MessagePriority, ReliabilityMode
+except ImportError:
+    WebRTCStreamer = MessagePriority = ReliabilityMode = None
+
+try:
+    from .communication.latent_encoder import LatentEncoder, CompressionType
+except ImportError:
+    LatentEncoder = CompressionType = None
+
+try:
+    from .planning.llm_planner import LLMPlanner, PlanningLevel
+except ImportError:
+    LLMPlanner = PlanningLevel = None
+
+try:
+    from .fleet.drone_fleet import DroneFleet, DroneStatus, DroneCapability
+except ImportError:
+    DroneFleet = DroneStatus = DroneCapability = None
+
+try:
+    from .security import SecurityManager, SecurityLevel
+except ImportError:
+    SecurityManager = SecurityLevel = None
+
+try:
+    from .monitoring import HealthMonitor, HealthStatus, AlertSeverity
+except ImportError:
+    HealthMonitor = HealthStatus = AlertSeverity = None
+
+try:
+    from .utils.performance import performance_monitor, get_performance_summary
+except ImportError:
+    performance_monitor = get_performance_summary = None
+
+try:
+    from .utils.concurrency import execute_concurrent, get_concurrency_stats
+except ImportError:
+    execute_concurrent = get_concurrency_stats = None
+
+try:
+    from .utils.auto_scaling import update_scaling_metric, get_autoscaling_stats
+except ImportError:
+    update_scaling_metric = get_autoscaling_stats = None
 
 # Generation 4: Quantum-Inspired Systems
 from .quantum import QuantumSwarmCoordinator, QuantumState, EntanglementPair, QuantumOptimizer
