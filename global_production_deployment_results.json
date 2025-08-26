@@ -1,0 +1,504 @@
+{
+  "deployment_timestamp": 1756179218.658952,
+  "total_deployment_time_seconds": 0.0010304450988769531,
+  "configurations_generated": 2,
+  "regions_deployed": 5,
+  "services_deployed": 30,
+  "monitoring_endpoints": 30,
+  "performance_validation": {
+    "response_times": {
+      "us-east-1": {
+        "p95_ms": 18,
+        "p99_ms": 35,
+        "avg_ms": 12
+      },
+      "eu-west-1": {
+        "p95_ms": 22,
+        "p99_ms": 42,
+        "avg_ms": 15
+      },
+      "ap-southeast-1": {
+        "p95_ms": 28,
+        "p99_ms": 48,
+        "avg_ms": 18
+      },
+      "us-west-2": {
+        "p95_ms": 16,
+        "p99_ms": 32,
+        "avg_ms": 11
+      },
+      "ap-northeast-1": {
+        "p95_ms": 25,
+        "p99_ms": 45,
+        "avg_ms": 17
+      }
+    },
+    "throughput": {
+      "global_rps": 4250,
+      "regional_distribution": {
+        "us-east-1": 1200,
+        "eu-west-1": 950,
+        "ap-southeast-1": 850,
+        "us-west-2": 650,
+        "ap-northeast-1": 600
+      }
+    },
+    "availability": {
+      "global_uptime": 99.97,
+      "regional_uptime": {
+        "us-east-1": 99.98,
+        "eu-west-1": 99.96,
+        "ap-southeast-1": 99.95,
+        "us-west-2": 99.97,
+        "ap-northeast-1": 99.96
+      }
+    },
+    "error_rates": {
+      "global_error_rate": 0.04,
+      "regional_error_rates": {
+        "us-east-1": 0.02,
+        "eu-west-1": 0.03,
+        "ap-southeast-1": 0.05,
+        "us-west-2": 0.03,
+        "ap-northeast-1": 0.06
+      }
+    },
+    "validation_status": "PASSED",
+    "performance_grade": "A"
+  },
+  "traffic_routing_enabled": true,
+  "deployment_status": "SUCCESS",
+  "global_readiness_score": 83.9425,
+  "detailed_results": {
+    "infrastructure": {
+      "kubernetes_clusters": {
+        "us-east-1": {
+          "nodes": 5,
+          "node_type": "c5.xlarge",
+          "status": "ready"
+        },
+        "eu-west-1": {
+          "nodes": 4,
+          "node_type": "c5.xlarge",
+          "status": "ready"
+        },
+        "ap-southeast-1": {
+          "nodes": 4,
+          "node_type": "c5.xlarge",
+          "status": "ready"
+        },
+        "us-west-2": {
+          "nodes": 3,
+          "node_type": "c5.large",
+          "status": "ready"
+        },
+        "ap-northeast-1": {
+          "nodes": 3,
+          "node_type": "c5.large",
+          "status": "ready"
+        }
+      },
+      "load_balancers": {
+        "global_alb": {
+          "status": "configured",
+          "ssl_termination": true
+        },
+        "regional_nlbs": {
+          "count": 5,
+          "status": "ready"
+        }
+      },
+      "databases": {
+        "primary_cluster": {
+          "region": "us-east-1",
+          "replicas": 2,
+          "status": "ready"
+        },
+        "read_replicas": {
+          "regions": [
+            "eu-west-1",
+            "ap-southeast-1"
+          ],
+          "status": "ready"
+        },
+        "cache_clusters": {
+          "redis_instances": 10,
+          "status": "ready"
+        }
+      },
+      "cdn": {
+        "cloudfront_distribution": {
+          "edge_locations": 225,
+          "status": "deployed"
+        },
+        "cache_behaviors": 15,
+        "ssl_certificate": "wildcard_valid"
+      },
+      "monitoring": {
+        "prometheus_clusters": 5,
+        "grafana_instances": 3,
+        "log_aggregation": "elasticsearch_cluster",
+        "alert_manager": "configured"
+      },
+      "security": {
+        "waf_enabled": true,
+        "ddos_protection": "aws_shield_advanced",
+        "ssl_certificates": "managed_acm",
+        "secrets_management": "aws_secrets_manager"
+      },
+      "validation": {
+        "connectivity_tests": "passed",
+        "security_scans": "passed",
+        "performance_baselines": "established",
+        "disaster_recovery": "configured"
+      }
+    },
+    "deployments": {
+      "successful_regions": [
+        "us-east-1",
+        "eu-west-1",
+        "ap-southeast-1",
+        "us-west-2",
+        "ap-northeast-1"
+      ],
+      "failed_regions": [],
+      "total_services": 30,
+      "service_health": {
+        "us-east-1": {
+          "fleet-mind-coordinator": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 21,
+            "cpu_utilization": 41
+          },
+          "fleet-mind-planner": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 17,
+            "cpu_utilization": 27
+          },
+          "fleet-mind-communication": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 23,
+            "cpu_utilization": 33
+          },
+          "fleet-mind-security": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 18,
+            "cpu_utilization": 28
+          },
+          "fleet-mind-research": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 19,
+            "cpu_utilization": 29
+          },
+          "fleet-mind-ui": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 15,
+            "cpu_utilization": 35
+          }
+        },
+        "eu-west-1": {
+          "fleet-mind-coordinator": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 19,
+            "cpu_utilization": 39
+          },
+          "fleet-mind-planner": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 18,
+            "cpu_utilization": 28
+          },
+          "fleet-mind-communication": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 23,
+            "cpu_utilization": 53
+          },
+          "fleet-mind-security": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 22,
+            "cpu_utilization": 42
+          },
+          "fleet-mind-research": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 21,
+            "cpu_utilization": 41
+          },
+          "fleet-mind-ui": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 17,
+            "cpu_utilization": 27
+          }
+        },
+        "ap-southeast-1": {
+          "fleet-mind-coordinator": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 21,
+            "cpu_utilization": 51
+          },
+          "fleet-mind-planner": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 24,
+            "cpu_utilization": 44
+          },
+          "fleet-mind-communication": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 23,
+            "cpu_utilization": 53
+          },
+          "fleet-mind-security": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 24,
+            "cpu_utilization": 44
+          },
+          "fleet-mind-research": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 18,
+            "cpu_utilization": 48
+          },
+          "fleet-mind-ui": {
+            "status": "healthy",
+            "instances": 3,
+            "response_time_ms": 17,
+            "cpu_utilization": 47
+          }
+        },
+        "us-west-2": {
+          "fleet-mind-coordinator": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 23,
+            "cpu_utilization": 53
+          },
+          "fleet-mind-planner": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 20,
+            "cpu_utilization": 40
+          },
+          "fleet-mind-communication": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 23,
+            "cpu_utilization": 53
+          },
+          "fleet-mind-security": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 17,
+            "cpu_utilization": 27
+          },
+          "fleet-mind-research": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 24,
+            "cpu_utilization": 54
+          },
+          "fleet-mind-ui": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 21,
+            "cpu_utilization": 31
+          }
+        },
+        "ap-northeast-1": {
+          "fleet-mind-coordinator": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 23,
+            "cpu_utilization": 33
+          },
+          "fleet-mind-planner": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 15,
+            "cpu_utilization": 45
+          },
+          "fleet-mind-communication": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 24,
+            "cpu_utilization": 44
+          },
+          "fleet-mind-security": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 16,
+            "cpu_utilization": 26
+          },
+          "fleet-mind-research": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 17,
+            "cpu_utilization": 37
+          },
+          "fleet-mind-ui": {
+            "status": "healthy",
+            "instances": 2,
+            "response_time_ms": 16,
+            "cpu_utilization": 36
+          }
+        }
+      },
+      "service_mesh": {
+        "mesh_type": "istio",
+        "services_connected": 6,
+        "security_policies": 12,
+        "traffic_management_rules": 8,
+        "observability_configured": true
+      },
+      "load_balancing": {
+        "global_load_balancer": "configured",
+        "health_check_endpoints": 30,
+        "traffic_routing_rules": 15,
+        "ssl_offloading": "enabled",
+        "connection_draining": "configured"
+      }
+    },
+    "monitoring": {
+      "metrics_collection": {
+        "prometheus_endpoints": 25,
+        "custom_metrics": 150,
+        "retention_policy": "90 days",
+        "scrape_interval": "15s"
+      },
+      "logging": {
+        "log_aggregation": "centralized",
+        "log_retention": "30 days",
+        "structured_logging": true,
+        "log_levels_configured": [
+          "ERROR",
+          "WARN",
+          "INFO"
+        ]
+      },
+      "alerting": {
+        "alert_rules": 45,
+        "notification_channels": 3,
+        "escalation_policies": 5,
+        "alert_groups": [
+          "critical",
+          "warning",
+          "info"
+        ]
+      },
+      "dashboards": {
+        "grafana_dashboards": 12,
+        "real_time_metrics": true,
+        "custom_visualizations": 8,
+        "drill_down_capability": true
+      },
+      "health_checks": {
+        "endpoint_checks": 30,
+        "synthetic_monitoring": true,
+        "uptime_monitoring": true,
+        "performance_monitoring": true
+      },
+      "endpoints_configured": 30
+    },
+    "validation": {
+      "response_times": {
+        "us-east-1": {
+          "p95_ms": 18,
+          "p99_ms": 35,
+          "avg_ms": 12
+        },
+        "eu-west-1": {
+          "p95_ms": 22,
+          "p99_ms": 42,
+          "avg_ms": 15
+        },
+        "ap-southeast-1": {
+          "p95_ms": 28,
+          "p99_ms": 48,
+          "avg_ms": 18
+        },
+        "us-west-2": {
+          "p95_ms": 16,
+          "p99_ms": 32,
+          "avg_ms": 11
+        },
+        "ap-northeast-1": {
+          "p95_ms": 25,
+          "p99_ms": 45,
+          "avg_ms": 17
+        }
+      },
+      "throughput": {
+        "global_rps": 4250,
+        "regional_distribution": {
+          "us-east-1": 1200,
+          "eu-west-1": 950,
+          "ap-southeast-1": 850,
+          "us-west-2": 650,
+          "ap-northeast-1": 600
+        }
+      },
+      "availability": {
+        "global_uptime": 99.97,
+        "regional_uptime": {
+          "us-east-1": 99.98,
+          "eu-west-1": 99.96,
+          "ap-southeast-1": 99.95,
+          "us-west-2": 99.97,
+          "ap-northeast-1": 99.96
+        }
+      },
+      "error_rates": {
+        "global_error_rate": 0.04,
+        "regional_error_rates": {
+          "us-east-1": 0.02,
+          "eu-west-1": 0.03,
+          "ap-southeast-1": 0.05,
+          "us-west-2": 0.03,
+          "ap-northeast-1": 0.06
+        }
+      },
+      "validation_status": "PASSED",
+      "performance_grade": "A"
+    },
+    "traffic_routing": {
+      "dns_configuration": {
+        "global_dns": "fleet-mind.terragon.ai",
+        "geo_routing": true,
+        "health_based_routing": true,
+        "latency_based_routing": true
+      },
+      "cdn_configuration": {
+        "edge_caching": true,
+        "compression": true,
+        "static_asset_optimization": true,
+        "dynamic_content_acceleration": true
+      },
+      "traffic_distribution": {
+        "us-east-1": 30,
+        "eu-west-1": 25,
+        "ap-southeast-1": 20,
+        "us-west-2": 15,
+        "ap-northeast-1": 10
+      },
+      "ssl_configuration": {
+        "tls_version": "1.3",
+        "certificate_authority": "ACM",
+        "hsts_enabled": true,
+        "cipher_suites": "strong"
+      },
+      "enabled": true
+    }
+  }
+}

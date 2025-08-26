@@ -1,0 +1,69 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "fleet-mind-coordinator",
+    "labels": {
+      "app": "fleet-mind",
+      "component": "coordinator"
+    }
+  },
+  "spec": {
+    "replicas": 3,
+    "selector": {
+      "matchLabels": {
+        "app": "fleet-mind",
+        "component": "coordinator"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "fleet-mind",
+          "component": "coordinator"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "coordinator",
+            "image": "fleet-mind/coordinator:latest",
+            "ports": [
+              {
+                "containerPort": 8080
+              }
+            ],
+            "env": [
+              {
+                "name": "LOG_LEVEL",
+                "value": "INFO"
+              },
+              {
+                "name": "METRICS_ENABLED",
+                "value": "true"
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "200m",
+                "memory": "256Mi"
+              },
+              "limits": {
+                "cpu": "500m",
+                "memory": "512Mi"
+              }
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 10
+            }
+          }
+        ]
+      }
+    }
+  }
+}
