@@ -1,0 +1,25 @@
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "fleet-mind-planner",
+    "labels": {
+      "app": "fleet-mind",
+      "component": "planner"
+    }
+  },
+  "spec": {
+    "selector": {
+      "app": "fleet-mind",
+      "component": "planner"
+    },
+    "ports": [
+      {
+        "port": 8080,
+        "targetPort": 8080,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "LoadBalancer"
+  }
+}
