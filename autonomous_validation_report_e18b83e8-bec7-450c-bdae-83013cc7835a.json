@@ -1,0 +1,227 @@
+{
+  "validation_metadata": {
+    "execution_id": "e18b83e8-bec7-450c-bdae-83013cc7835a",
+    "timestamp": "2025-08-27T12:13:26.703916",
+    "execution_time_seconds": 5.837091,
+    "overall_status": "GOOD",
+    "overall_score": 0.744
+  },
+  "gate_summary": {
+    "total_gates": 8,
+    "passed_gates": 6,
+    "failed_gates": 1,
+    "review_gates": 1,
+    "success_rate": 75.0
+  },
+  "detailed_results": {
+    "code_structure": {
+      "status": "passed",
+      "score": 1.0,
+      "execution_time": 0.5061523914337158,
+      "details": {
+        "python_files": 169,
+        "missing_directories": [],
+        "missing_files": [],
+        "structure_issues": []
+      },
+      "recommendations": [
+        "Code structure is well organized"
+      ],
+      "timestamp": "2025-08-27T12:13:21.373165"
+    },
+    "security_scan": {
+      "status": "failed",
+      "score": 0.0,
+      "execution_time": 1.105865716934204,
+      "details": {
+        "vulnerabilities_found": 32,
+        "security_issues": [
+          "generation1_basic_validation.py: Use of exec() function",
+          "generation_2_robust_implementation.py: Dynamic import usage",
+          "quality_validation.py: Use of exec() function",
+          "test_generation2_standalone.py: Use of eval() function",
+          "validate_generation2.py: Use of eval() function",
+          "generation9_progressive_quality_gates_autonomous.py: Use of exec() function",
+          "generation9_simplified_quality_validation.py: Use of eval() function",
+          "generation9_simplified_quality_validation.py: Use of exec() function",
+          "generation9_simplified_quality_validation.py: Dynamic import usage",
+          "generation9_simplified_quality_validation.py: Subprocess usage",
+          "generation9_simplified_quality_validation.py: System command execution",
+          "tests/test_generation2_robustness.py: Use of eval() function",
+          "fleet_mind/communication/latent_encoder.py: Use of eval() function",
+          "fleet_mind/security/security_manager.py: Use of eval() function",
+          "fleet_mind/security/security_manager.py: Use of exec() function",
+          "fleet_mind/utils/input_sanitizer.py: Use of eval() function",
+          "fleet_mind/utils/input_sanitizer.py: Use of exec() function",
+          "generation_2_robust_implementation.py: Potential token",
+          "generation_3_scalable_implementation.py: Potential token",
+          "robust_swarm_coordinator.py: Potential token",
+          "robust_system_validation.py: Potential hardcoded password",
+          "run_generation2_tests.py: Potential token",
+          "test_generation2_standalone.py: Potential token",
+          "validate_generation2.py: Potential token",
+          "scripts/run_tests.py: Potential token",
+          "tests/test_generation2_robustness.py: Potential token",
+          "tests/test_integration_robust.py: Potential token",
+          "fleet_mind/planning/llm_planner.py: Potential API key",
+          "fleet_mind/quality_gates/compliance_automation.py: Potential secret",
+          "fleet_mind/security/security_manager.py: Potential token",
+          "fleet_mind/utils/security.py: Potential secret",
+          "fleet_mind/utils/security.py: Potential token"
+        ],
+        "files_scanned": 169
+      },
+      "recommendations": [
+        "Remove hardcoded secrets and passwords",
+        "Use environment variables for sensitive data",
+        "Implement proper input validation",
+        "Regular security audits"
+      ],
+      "timestamp": "2025-08-27T12:13:22.479381"
+    },
+    "performance_test": {
+      "status": "passed",
+      "score": 0.8,
+      "execution_time": 0.8011839389801025,
+      "details": {
+        "response_time_ms": 98.49056151965735,
+        "memory_usage_mb": 418.60395862944165,
+        "cpu_usage_percent": 76.62097050796166,
+        "performance_issues": [
+          "High CPU usage: 76.6%"
+        ]
+      },
+      "recommendations": [
+        "Optimize algorithms for better performance",
+        "Implement caching mechanisms",
+        "Profile and identify bottlenecks",
+        "Consider asynchronous processing"
+      ],
+      "timestamp": "2025-08-27T12:13:23.280932"
+    },
+    "integration_test": {
+      "status": "passed",
+      "score": 1.0,
+      "execution_time": 1.2068636417388916,
+      "details": {
+        "test_files_found": 11,
+        "estimated_coverage": 81.75657613092616,
+        "integration_issues": []
+      },
+      "recommendations": [
+        "Integration testing looks good"
+      ],
+      "timestamp": "2025-08-27T12:13:24.488164"
+    },
+    "documentation": {
+      "status": "passed",
+      "score": 1.0,
+      "execution_time": 0.6072592735290527,
+      "details": {
+        "documentation_files": 28,
+        "missing_essential_docs": [],
+        "readme_issues": []
+      },
+      "recommendations": [
+        "Documentation is comprehensive"
+      ],
+      "timestamp": "2025-08-27T12:13:25.095779"
+    },
+    "configuration": {
+      "status": "passed",
+      "score": 0.75,
+      "execution_time": 0.4010746479034424,
+      "details": {
+        "configuration_files": {
+          "pyproject.toml": true,
+          "requirements.txt": true,
+          "docker": true,
+          "ci_cd": false
+        },
+        "configuration_issues": [
+          "Missing ci_cd"
+        ]
+      },
+      "recommendations": [
+        "Add missing configuration files",
+        "Ensure proper dependency management",
+        "Set up CI/CD pipeline",
+        "Configure container deployment"
+      ],
+      "timestamp": "2025-08-27T12:13:25.497181"
+    },
+    "deployment_readiness": {
+      "status": "passed",
+      "score": 1.0,
+      "execution_time": 0.7045094966888428,
+      "details": {
+        "deployment_readiness": {
+          "containerization": true,
+          "orchestration": true,
+          "configuration": true,
+          "monitoring": true,
+          "logging": true
+        },
+        "missing_components": []
+      },
+      "recommendations": [
+        "Deployment readiness is good"
+      ],
+      "timestamp": "2025-08-27T12:13:26.202077"
+    },
+    "compliance": {
+      "status": "requires_review",
+      "score": 0.4,
+      "execution_time": 0.5011448860168457,
+      "details": {
+        "compliance_checks": {
+          "license": true,
+          "code_of_conduct": false,
+          "security_policy": false,
+          "contribution_guidelines": true,
+          "changelog": false
+        },
+        "missing_policies": [
+          "code_of_conduct",
+          "security_policy",
+          "changelog"
+        ]
+      },
+      "recommendations": [
+        "Add missing policy documents",
+        "Ensure license compliance",
+        "Implement security guidelines",
+        "Maintain proper documentation"
+      ],
+      "timestamp": "2025-08-27T12:13:26.703648"
+    }
+  },
+  "consolidated_recommendations": [
+    "Integration testing looks good",
+    "Implement security guidelines",
+    "Optimize algorithms for better performance",
+    "Deployment readiness is good",
+    "Implement caching mechanisms",
+    "Set up CI/CD pipeline",
+    "Consider asynchronous processing",
+    "Ensure license compliance",
+    "Add missing policy documents",
+    "Configure container deployment",
+    "Remove hardcoded secrets and passwords",
+    "Add missing configuration files",
+    "Code structure is well organized",
+    "Documentation is comprehensive",
+    "Profile and identify bottlenecks",
+    "Implement proper input validation",
+    "Maintain proper documentation",
+    "Regular security audits",
+    "Ensure proper dependency management",
+    "Use environment variables for sensitive data"
+  ],
+  "next_steps": [
+    "\u2705 Quality validation mostly successful",
+    "Address remaining review items",
+    "Consider deployment after minor fixes",
+    "Monitor post-deployment metrics"
+  ]
+}

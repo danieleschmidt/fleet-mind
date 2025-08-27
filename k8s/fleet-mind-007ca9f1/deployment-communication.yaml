@@ -1,0 +1,84 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "fleet-mind-communication",
+    "namespace": "fleet-mind-007ca9f1",
+    "labels": {
+      "app": "fleet-mind",
+      "component": "communication",
+      "deployment-id": "007ca9f1-24d7-4edc-89a0-6c7b4b8b13dc"
+    }
+  },
+  "spec": {
+    "replicas": 2,
+    "selector": {
+      "matchLabels": {
+        "app": "fleet-mind",
+        "component": "communication"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "fleet-mind",
+          "component": "communication",
+          "deployment-id": "007ca9f1-24d7-4edc-89a0-6c7b4b8b13dc"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "communication",
+            "image": "fleet-mind-communication:latest",
+            "ports": [
+              {
+                "containerPort": 8080
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "500m",
+                "memory": "1Gi"
+              },
+              "limits": {
+                "cpu": "1000m",
+                "memory": "2.0Gi"
+              }
+            },
+            "env": [
+              {
+                "name": "DEPLOYMENT_ID",
+                "value": "007ca9f1-24d7-4edc-89a0-6c7b4b8b13dc"
+              },
+              {
+                "name": "COMPONENT",
+                "value": "communication"
+              },
+              {
+                "name": "STAGE",
+                "value": "staging"
+              }
+            ],
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 10
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/ready",
+                "port": 8080
+              },
+              "initialDelaySeconds": 5,
+              "periodSeconds": 5
+            }
+          }
+        ]
+      }
+    }
+  }
+}

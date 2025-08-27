@@ -1,0 +1,84 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "fleet-mind-planner",
+    "namespace": "fleet-mind-007ca9f1",
+    "labels": {
+      "app": "fleet-mind",
+      "component": "planner",
+      "deployment-id": "007ca9f1-24d7-4edc-89a0-6c7b4b8b13dc"
+    }
+  },
+  "spec": {
+    "replicas": 2,
+    "selector": {
+      "matchLabels": {
+        "app": "fleet-mind",
+        "component": "planner"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app": "fleet-mind",
+          "component": "planner",
+          "deployment-id": "007ca9f1-24d7-4edc-89a0-6c7b4b8b13dc"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "planner",
+            "image": "fleet-mind-planner:latest",
+            "ports": [
+              {
+                "containerPort": 8080
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "750m",
+                "memory": "1.5Gi"
+              },
+              "limits": {
+                "cpu": "1500m",
+                "memory": "3.0Gi"
+              }
+            },
+            "env": [
+              {
+                "name": "DEPLOYMENT_ID",
+                "value": "007ca9f1-24d7-4edc-89a0-6c7b4b8b13dc"
+              },
+              {
+                "name": "COMPONENT",
+                "value": "planner"
+              },
+              {
+                "name": "STAGE",
+                "value": "staging"
+              }
+            ],
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/health",
+                "port": 8080
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 10
+            },
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/ready",
+                "port": 8080
+              },
+              "initialDelaySeconds": 5,
+              "periodSeconds": 5
+            }
+          }
+        ]
+      }
+    }
+  }
+}

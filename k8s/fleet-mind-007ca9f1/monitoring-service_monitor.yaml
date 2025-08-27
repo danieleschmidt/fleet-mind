@@ -1,0 +1,23 @@
+{
+  "apiVersion": "monitoring.coreos.com/v1",
+  "kind": "ServiceMonitor",
+  "metadata": {
+    "name": "fleet-mind-monitoring",
+    "labels": {
+      "app": "fleet-mind"
+    }
+  },
+  "spec": {
+    "selector": {
+      "matchLabels": {
+        "app": "fleet-mind"
+      }
+    },
+    "endpoints": [
+      {
+        "port": "metrics",
+        "interval": "15s"
+      }
+    ]
+  }
+}

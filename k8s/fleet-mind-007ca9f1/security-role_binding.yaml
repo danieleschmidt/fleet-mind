@@ -1,0 +1,21 @@
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "RoleBinding",
+  "metadata": {
+    "name": "fleet-mind-binding",
+    "labels": {
+      "app": "fleet-mind"
+    }
+  },
+  "subjects": [
+    {
+      "kind": "ServiceAccount",
+      "name": "fleet-mind-sa"
+    }
+  ],
+  "roleRef": {
+    "kind": "Role",
+    "name": "fleet-mind-role",
+    "apiGroup": "rbac.authorization.k8s.io"
+  }
+}

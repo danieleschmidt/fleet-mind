@@ -1,0 +1,12 @@
+{
+  "apiVersion": "v1",
+  "kind": "Namespace",
+  "metadata": {
+    "name": "fleet-mind-007ca9f1",
+    "labels": {
+      "app": "fleet-mind",
+      "deployment-id": "007ca9f1-24d7-4edc-89a0-6c7b4b8b13dc",
+      "managed-by": "fleet-mind-orchestrator"
+    }
+  }
+}

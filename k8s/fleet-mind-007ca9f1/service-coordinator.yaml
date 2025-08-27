@@ -1,0 +1,25 @@
+{
+  "apiVersion": "v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "fleet-mind-coordinator",
+    "labels": {
+      "app": "fleet-mind",
+      "component": "coordinator"
+    }
+  },
+  "spec": {
+    "selector": {
+      "app": "fleet-mind",
+      "component": "coordinator"
+    },
+    "ports": [
+      {
+        "port": 8080,
+        "targetPort": 8080,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "LoadBalancer"
+  }
+}

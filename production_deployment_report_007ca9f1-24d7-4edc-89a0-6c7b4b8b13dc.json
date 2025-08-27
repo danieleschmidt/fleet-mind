@@ -1,0 +1,123 @@
+{
+  "deployment_metadata": {
+    "deployment_id": "007ca9f1-24d7-4edc-89a0-6c7b4b8b13dc",
+    "stage": "staging",
+    "start_time": "2025-08-27T12:15:57.267634",
+    "end_time": "2025-08-27T12:16:13.197058",
+    "total_duration_seconds": 15.929424,
+    "orchestrator_version": "1.0.0"
+  },
+  "deployment_summary": {
+    "target_regions": 2,
+    "successful_deployments": 2,
+    "failed_deployments": 0,
+    "success_rate": 100.0,
+    "total_replicas_deployed": 14,
+    "total_endpoints": 8
+  },
+  "regional_results": {
+    "us-east-1": {
+      "status": "deployed",
+      "duration_seconds": 7.009594,
+      "endpoints": [
+        "https://api-coordinator-us-east-1.terragon.ai",
+        "https://api-communication-us-east-1.terragon.ai",
+        "https://api-planner-us-east-1.terragon.ai",
+        "https://fleet-mind-us-east-1.terragon.ai"
+      ],
+      "health_checks": {
+        "https://api-coordinator-us-east-1.terragon.ai": "healthy",
+        "https://api-communication-us-east-1.terragon.ai": "healthy",
+        "https://api-planner-us-east-1.terragon.ai": "healthy",
+        "https://fleet-mind-us-east-1.terragon.ai": "healthy"
+      },
+      "metrics": {
+        "cpu_usage": "45%",
+        "memory_usage": "60%",
+        "pod_count": 7
+      },
+      "pod_count": 7
+    },
+    "eu-west-1": {
+      "status": "deployed",
+      "duration_seconds": 7.00957,
+      "endpoints": [
+        "https://api-coordinator-eu-west-1.terragon.ai",
+        "https://api-communication-eu-west-1.terragon.ai",
+        "https://api-planner-eu-west-1.terragon.ai",
+        "https://fleet-mind-eu-west-1.terragon.ai"
+      ],
+      "health_checks": {
+        "https://api-coordinator-eu-west-1.terragon.ai": "healthy",
+        "https://api-communication-eu-west-1.terragon.ai": "healthy",
+        "https://api-planner-eu-west-1.terragon.ai": "healthy",
+        "https://fleet-mind-eu-west-1.terragon.ai": "healthy"
+      },
+      "metrics": {
+        "cpu_usage": "45%",
+        "memory_usage": "60%",
+        "pod_count": 7
+      },
+      "pod_count": 7
+    }
+  },
+  "health_validation": {
+    "overall_status": "healthy",
+    "regional_health": {
+      "us-east-1": "healthy",
+      "eu-west-1": "healthy"
+    },
+    "failed_regions": [],
+    "healthy_regions": [
+      "us-east-1",
+      "eu-west-1"
+    ]
+  },
+  "monitoring_setup": {
+    "prometheus_endpoints": [
+      "https://metrics-us-east-1.terragon.ai",
+      "https://metrics-eu-west-1.terragon.ai"
+    ],
+    "grafana_dashboards": [
+      "fleet-mind-overview",
+      "fleet-mind-performance",
+      "fleet-mind-errors",
+      "fleet-mind-regional-health"
+    ],
+    "alert_rules": [
+      "high-cpu-usage",
+      "high-memory-usage",
+      "deployment-failure",
+      "endpoint-down",
+      "error-rate-spike"
+    ],
+    "log_aggregation": []
+  },
+  "resource_allocation": {
+    "total_cpu_requested": 4700,
+    "total_memory_requested": 521.0,
+    "scaling_configuration": {
+      "enabled": true,
+      "min_replicas": 2,
+      "max_replicas": 10
+    }
+  },
+  "security_configuration": {
+    "tls_enabled": true,
+    "rbac_enabled": true,
+    "network_policies_enabled": true,
+    "pod_security_enabled": false
+  },
+  "networking_configuration": {
+    "load_balancer": "LoadBalancer",
+    "ingress_enabled": true,
+    "service_mesh_enabled": false,
+    "cdn_enabled": false
+  },
+  "next_steps": [
+    "\u2705 Deployment completed successfully",
+    "Monitor system performance and health metrics",
+    "Validate end-to-end functionality",
+    "Enable traffic routing to new deployment"
+  ]
+}
